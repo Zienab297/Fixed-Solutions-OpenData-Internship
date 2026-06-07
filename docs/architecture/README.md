@@ -134,7 +134,7 @@ sequenceDiagram
     participant Embed as Embedding Worker
     participant Docs as Document Store
     participant Vector as Vector DB
-    participant Graph as Graph DB
+    participant GraphDb as Graph DB
 
     User->>Web: Upload PDF to a domain
     Web->>API: POST /api/v1/ingest/document
@@ -146,7 +146,7 @@ sequenceDiagram
     Ingest->>Docs: Store source document and chunks
     Ingest->>Embed: Request embeddings
     Embed->>Vector: Store vectors
-    Ingest->>Graph: Store extracted entities and relations
+    Ingest->>GraphDb: Store extracted entities and relations
 ```
 
 ## LLM Routing Decision
@@ -177,5 +177,5 @@ flowchart LR
     compile --> tests["Run LLM router tests"]
     tests --> compose["Validate Docker Compose config"]
     compose --> review["Ready for review"]
-    review -. "future CD" .-> deploy["Deployment pipeline"]
+    review -.-> deploy["Deployment pipeline"]
 ```

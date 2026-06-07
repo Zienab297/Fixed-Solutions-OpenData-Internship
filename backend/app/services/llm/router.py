@@ -1,56 +1,65 @@
-"""
-LLM Router — decides whether to use local Ollama or external API model.
-Routing rules configurable per domain by domain admins.
-"""
 from dataclasses import dataclass
-from typing import List
-from uuid import UUID
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from typing import Mapping, Sequence
 
 from app.core.config import settings
-from app.services.llm.local_llm import LocalLLMService
+from app.schemas.query import ContextChunk, RouteName
 from app.services.llm.external_llm import ExternalLLMService
 from app.services.llm.language_detector import detect_language
+from app.services.llm.local_llm import LocalLLMService
 
 
-@dataclass
+VALID_ROUTES = {"local", "api"}
+
+
+@dataclass(frozen=True)
 class GenerationResult:
     answer: str
-    llm_route: str      # 'local' or 'api'
+    llm_route: RouteName
     language_detected: str
 
 
 class LLMRouter:
-    def __init__(self):
-        self.local_llm = LocalLLMService()
-        self.external_llm = ExternalLLMService()
+    def __init__(
+        self,
+        local_llm: LocalLLMService | None = None,
+        external_llm: ExternalLLMService | None = None,
+    ) -> None:
+        self.local_llm = local_llm or LocalLLMService()
+        self.external_llm = external_llm or ExternalLLMService()
+
+    def determine_route(
+        self,
+        domain_ids: Sequence[str],
+        domain_routes: Mapping[str, str],
+    ) -> RouteName:
+        if not domain_ids:
+            return "local"
+
+        selected_routes: list[str] = []
+        for domain_id in domain_ids:
+            route = domain_routes.get(str(domain_id))
+            if route not in VALID_ROUTES:
+                return "local"
+            selected_routes.append(route)
+
+        if "local" in selected_routes:
+            return "local"
+        return "api"
 
     async def generate(
         self,
         query: str,
-        context: List[dict],
-        domain_ids: List[UUID],
-        db: AsyncSession,
+        context: Sequence[ContextChunk],
+        domain_ids: Sequence[str],
+        domain_routes: Mapping[str, str],
     ) -> GenerationResult:
-        """
-        Route query to appropriate LLM based on domain configuration.
-        Local model for sensitive domains, API model for general queries.
-        """
-        # Detect query language for multilingual response
         language = detect_language(query)
-
-        # Determine routing based on domain config
-        llm_route = await self._determine_route(domain_ids, db)
-
-        # Build context string from retrieved chunks
+        llm_route = self.determine_route(domain_ids, domain_routes)
         context_text = self._build_context(context)
-
-        # Generate answer in detected language
-        prompt = self._build_prompt(query, context_text, language)
+        prompt = self._build_prompt(query=query, context=context_text, language=language)
 
         if llm_route == "local":
-            answer = await self.local_llm.generate(prompt, model=settings.GENERATION_MODEL)
+            answer = await self.local_llm.generate(prompt, model=settings.LOCAL_LLM_MODEL)
         else:
             answer = await self.external_llm.generate(prompt)
 
@@ -60,45 +69,29 @@ class LLMRouter:
             language_detected=language,
         )
 
-    async def _determine_route(self, domain_ids: List[UUID], db: AsyncSession) -> str:
-        """
-        Check domain configurations for LLM routing preference.
-        If any domain requires local, use local (most restrictive wins).
-        """
-        result = await db.execute(
-            text("""
-                SELECT llm_route FROM rag.domains
-                WHERE id = ANY(:domain_ids::uuid[])
-            """),
-            {"domain_ids": [str(d) for d in domain_ids]},
-        )
-        routes = [row.llm_route for row in result.fetchall()]
+    def _build_context(self, chunks: Sequence[ContextChunk]) -> str:
+        if not chunks:
+            return "No retrieved context was provided."
 
-        if "local" in routes:
-            return "local"
-        if "api" in routes:
-            return "api"
-        return "local"  # default to local for safety
-
-    def _build_context(self, chunks: List[dict]) -> str:
-        """Assemble retrieved chunks into context string with source markers."""
-        context_parts = []
-        for i, chunk in enumerate(chunks, 1):
-            context_parts.append(
-                f"[Source {i}: {chunk.get('document_title', 'Unknown')}, "
-                f"Page {chunk.get('page_number', 'N/A')}]\n{chunk.get('content', '')}"
+        parts = []
+        for index, chunk in enumerate(chunks, start=1):
+            page = chunk.page_number if chunk.page_number is not None else "N/A"
+            parts.append(
+                f"[Source {index}: {chunk.document_title}, Page {page}]\n{chunk.content}"
             )
-        return "\n\n".join(context_parts)
+        return "\n\n".join(parts)
 
     def _build_prompt(self, query: str, context: str, language: str) -> str:
-        return f"""You are a helpful assistant. Answer the user's question based ONLY on the provided context.
-If the context doesn't contain enough information, say so clearly.
-Always respond in {language}.
-Cite sources using [Source N] notation inline.
+        return f"""You are a RAG assistant.
+Answer only from the provided context.
+If the context is insufficient, say that clearly.
+Respond in language code: {language}.
+Cite sources with [Source N].
 
 Context:
 {context}
 
-Question: {query}
+Question:
+{query}
 
 Answer:"""
