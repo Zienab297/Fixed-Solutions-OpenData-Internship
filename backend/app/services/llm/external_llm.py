@@ -1,16 +1,24 @@
-"""External API LLM — for general/non-sensitive queries."""
-import anthropic
+import httpx
+
 from app.core.config import settings
 
 
 class ExternalLLMService:
-    def __init__(self):
-        self.client = anthropic.Anthropic(api_key=settings.EXTERNAL_LLM_API_KEY)
-
     async def generate(self, prompt: str) -> str:
-        message = self.client.messages.create(
-            model=settings.EXTERNAL_LLM_MODEL,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
+        if settings.MOCK_LLM_RESPONSES or not settings.GEMINI_API_KEY:
+            return "Mock Gemini 3.5 Flash response. Route selected: api."
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{settings.API_LLM_MODEL}:generateContent"
         )
-        return message.content[0].text
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                url,
+                params={"key": settings.GEMINI_API_KEY},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]

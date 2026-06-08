@@ -2,39 +2,33 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-.venv/
-dist/
-build/
 .pytest_cache/
 .mypy_cache/
-htmlcov/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
 .coverage
+htmlcov/
 
 # Node
 node_modules/
+dist/
 .next/
 out/
-.env.local
 
 # Environment
 .env
 *.env
+!.env.example
 
-# Docker volumes
-postgres_data/
-qdrant_data/
-redis_data/
+# Docker volumes and local data
+local_data/
 
-# IDE
-.vscode/
+# IDE and OS
 .idea/
+.vscode/
 *.swp
-
-# OS
 .DS_Store
 Thumbs.db
-
-# ML models (large files)
-*.bin
-*.safetensors
-models/

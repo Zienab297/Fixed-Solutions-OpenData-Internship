@@ -1,144 +1,43 @@
-version: "3.9"
-
 services:
-
-  # ── API Server ─────────────────────────────────────────────
   api:
     build:
       context: ../../backend
       dockerfile: Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      APP_PORT: ${APP_PORT:-8000}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-change-me}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-https://your-colab-tunnel-url/v1}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-Qwen/Qwen3-8B}
+      LOCAL_LLM_QUANTIZATION: ${LOCAL_LLM_QUANTIZATION:-4-bit}
+      LOCAL_LLM_HOSTING: ${LOCAL_LLM_HOSTING:-google-colab}
+      JUDGE_MODEL: ${JUDGE_MODEL:-Qwen/Qwen3-8B}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-large}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      API_LLM_PROVIDER: ${API_LLM_PROVIDER:-gemini}
+      API_LLM_MODEL: ${API_LLM_MODEL:-gemini-3.5-flash}
+      MOCK_LLM_RESPONSES: ${MOCK_LLM_RESPONSES:-true}
     ports:
       - "8000:8000"
-    env_file: ../../.env
-    depends_on:
-      - postgres
-      - qdrant
-      - redis
-      - keycloak
-    volumes:
-      - ../../backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-net
 
-  # ── Web UI ─────────────────────────────────────────────────
   frontend:
     build:
       context: ../../frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
-    env_file: ../../.env
+      - "3000:80"
     depends_on:
       - api
+    networks:
+      - rag-net
 
-  # ── PostgreSQL + Apache AGE (graph DB) ─────────────────────
-  postgres:
-    image: apache/age:latest
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ../../infrastructure/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
-
-  # ── Qdrant (vector DB) ─────────────────────────────────────
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-
-  # ── Redis (celery broker + result backend) ─────────────────
-  redis:
-    image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD}
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  # ── Celery Worker (ingestion + evaluation jobs) ────────────
-  celery_worker:
-    build:
-      context: ../../backend
-      dockerfile: Dockerfile
-    command: celery -A app.workers.celery_app worker --loglevel=info --queues=ingestion,evaluation,extraction
-    env_file: ../../.env
-    depends_on:
-      - redis
-      - postgres
-      - qdrant
-    volumes:
-      - ../../backend:/app
-
-  # ── Celery Beat (scheduled jobs: re-crawl, regression) ─────
-  celery_beat:
-    build:
-      context: ../../backend
-      dockerfile: Dockerfile
-    command: celery -A app.workers.celery_app beat --loglevel=info
-    env_file: ../../.env
-    depends_on:
-      - redis
-    volumes:
-      - ../../backend:/app
-
-  # ── Ollama (local LLM — generation + judge) ────────────────
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-  # ── Keycloak (auth / SSO) ──────────────────────────────────
-  keycloak:
-    image: quay.io/keycloak/keycloak:latest
-    command: start-dev
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres/${POSTGRES_DB}
-      KC_DB_USERNAME: ${POSTGRES_USER}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-    ports:
-      - "8080:8080"
-    depends_on:
-      - postgres
-
-  # ── Prometheus (metrics) ───────────────────────────────────
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-
-  # ── Grafana (dashboards) ───────────────────────────────────
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ../grafana/dashboards:/etc/grafana/provisioning/dashboards
-
-volumes:
-  postgres_data:
-  qdrant_data:
-  redis_data:
-  ollama_data:
-  grafana_data:
+networks:
+  rag-net:
+    driver: bridge
