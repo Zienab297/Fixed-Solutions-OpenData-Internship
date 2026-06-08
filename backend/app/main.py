@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.v1.endpoints.main import router as pdf_processing_router
 from app.api.v1.endpoints.query import router as query_router
 from app.core.config import settings
 
@@ -12,6 +13,7 @@ app = FastAPI(
 )
 
 app.include_router(query_router, prefix="/api/v1")
+app.include_router(pdf_processing_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])

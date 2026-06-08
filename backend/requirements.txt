@@ -4,3 +4,17 @@ pydantic==2.7.0
 pydantic-settings==2.3.0
 httpx==0.27.0
 langdetect==1.0.9
+
+# PDF processing / semantic chunking
+numpy
+python-dotenv
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+pypdf
+tiktoken
+sentence_transformers
+langchain_experimental
+langchain-huggingface
+python-multipart
