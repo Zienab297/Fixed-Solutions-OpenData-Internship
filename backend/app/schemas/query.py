@@ -1,7 +1,5 @@
-from typing import Literal
-
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
-
 
 RouteName = Literal["local", "api"]
 
@@ -17,10 +15,23 @@ class QueryRequest(BaseModel):
     domain_ids: list[str] = Field(default_factory=list)
     domain_routes: dict[str, RouteName] = Field(default_factory=dict)
     context: list[ContextChunk] = Field(default_factory=list)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class Citation(BaseModel):
+    chunk_id: str
+    document_title: str
+    page_number: Optional[int] = None
+    section: Optional[str] = None
+    domain_id: str
+    domain_name: str = ""
+    relevance_score: float = 0.0
 
 
 class QueryResponse(BaseModel):
     answer: str
     llm_route: RouteName
     language_detected: str
-    citations: list[str] = Field(default_factory=list)
+    citations: List[Citation] = Field(default_factory=list)
+    confidence_score: float = 0.0
+    signals_used: List[str] = Field(default_factory=list)

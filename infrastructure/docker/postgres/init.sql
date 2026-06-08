@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS rag.documents (
     ingest_status VARCHAR(50) DEFAULT 'pending' CHECK (ingest_status IN ('pending', 'processing', 'completed', 'failed')),
     ocr_used BOOLEAN DEFAULT FALSE,
     language VARCHAR(10),
+    content_hash VARCHAR(64),
+    CONSTRAINT uq_document_hash_domain UNIQUE (content_hash, domain_id),
     metadata JSONB DEFAULT '{}',
     ingested_by UUID REFERENCES rag.users(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
