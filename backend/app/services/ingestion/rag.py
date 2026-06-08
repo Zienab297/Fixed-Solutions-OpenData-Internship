@@ -1,6 +1,6 @@
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_experimental.text_splitter import SemanticChunker
-from models import embedding_model   
+from app.services.ingestion.models import embedding_model
 
 def process_pdf(pdf_path):
     loader = PyPDFLoader(pdf_path)

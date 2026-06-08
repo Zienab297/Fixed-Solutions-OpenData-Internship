@@ -1,9 +1,10 @@
-from fastapi import FastAPI, UploadFile, File
-from rag import process_pdf
+from fastapi import APIRouter, UploadFile, File
+from app.services.ingestion.rag import process_pdf
 
-app = FastAPI()
+router = APIRouter(tags=["PDF Processing"])
 
-@app.post("/upload-pdf/")
+
+@router.post("/upload-pdf/")
 async def upload_pdf(file: UploadFile = File(...)):
     file_path = f"temp_{file.filename}"
 
