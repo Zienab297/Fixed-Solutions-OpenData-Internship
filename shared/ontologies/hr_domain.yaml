@@ -1,0 +1,44 @@
+# HR Domain Ontology — defines allowed entity and relation types
+# Used by NER extraction to constrain graph population (§2.6)
+
+name: HR Domain Ontology
+version: "1.0"
+domain: hr
+
+node_types:
+  - name: Person
+    description: An employee or individual
+    properties: [name, email, department, job_title]
+
+  - name: Department
+    description: An organizational unit
+    properties: [name, budget_code, location]
+
+  - name: Policy
+    description: An HR policy document
+    properties: [title, effective_date, version]
+
+  - name: Role
+    description: A job role or position
+    properties: [title, level, salary_band]
+
+relation_types:
+  - name: WORKS_IN
+    from: Person
+    to: Department
+    properties: [start_date, end_date]
+
+  - name: HOLDS_ROLE
+    from: Person
+    to: Role
+    properties: [since]
+
+  - name: REPORTS_TO
+    from: Person
+    to: Person
+    properties: [since]
+
+  - name: GOVERNED_BY
+    from: Department
+    to: Policy
+    properties: []
