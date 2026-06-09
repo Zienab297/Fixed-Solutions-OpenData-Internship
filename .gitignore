@@ -17,6 +17,7 @@ node_modules/
 dist/
 .next/
 out/
+*.tsbuildinfo
 
 # Environment
 .env
@@ -25,6 +26,7 @@ out/
 
 # Docker volumes and local data
 local_data/
+*.db
 
 # IDE and OS
 .idea/

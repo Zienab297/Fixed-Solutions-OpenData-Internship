@@ -1,0 +1,277 @@
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { FileText, FileUp, Loader2, UploadCloud } from "lucide-react";
+
+import { fetchDomains, fetchIngestionJob, uploadPdf } from "../api";
+import DomainSelect from "../components/DomainSelect";
+import StatusBadge from "../components/StatusBadge";
+import {
+  readLastIngestionJobId,
+  readRecentDomainIds,
+  rememberDomainId,
+  saveLastIngestionJobId,
+} from "../storage";
+import type { Domain, IngestionJob } from "../types";
+
+type Props = {
+  token: string;
+};
+
+const terminalStatuses = new Set(["done", "failed"]);
+
+export default function UploadPage({ token }: Props) {
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [recentDomainIds, setRecentDomainIds] = useState<string[]>(() =>
+    readRecentDomainIds(),
+  );
+  const [selectedDomainId, setSelectedDomainId] = useState("");
+  const [manualDomainId, setManualDomainId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [job, setJob] = useState<IngestionJob | null>(null);
+  const [jobLookupId, setJobLookupId] = useState("");
+  const [isLoadingDomains, setIsLoadingDomains] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [error, setError] = useState("");
+
+  const effectiveDomainId = useMemo(
+    () => selectedDomainId || manualDomainId.trim(),
+    [manualDomainId, selectedDomainId],
+  );
+
+  useEffect(() => {
+    let ignore = false;
+    setIsLoadingDomains(true);
+    fetchDomains(token)
+      .then((items) => {
+        if (!ignore) {
+          setDomains(items);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Could not load domains");
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setIsLoadingDomains(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    const lastJobId = readLastIngestionJobId();
+    if (!lastJobId) {
+      return;
+    }
+
+    fetchIngestionJob(token, lastJobId)
+      .then((nextJob) => {
+        setJob(nextJob);
+        setRecentDomainIds(rememberDomainId(nextJob.domain_id));
+      })
+      .catch(() => {
+        // A missing old job should not block new uploads.
+      });
+  }, [token]);
+
+  useEffect(() => {
+    if (!job || terminalStatuses.has(job.status)) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      fetchIngestionJob(token, job.id)
+        .then(setJob)
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "Could not update job");
+        });
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [job, token]);
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    setFile(event.target.files?.[0] ?? null);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file || !effectiveDomainId) {
+      setError("PDF file and domain are required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+    setJob(null);
+    setRecentDomainIds(rememberDomainId(effectiveDomainId));
+
+    try {
+      const result = await uploadPdf(token, file, effectiveDomainId);
+      saveLastIngestionJobId(result.id);
+      setJob(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleLoadJob(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedJobId = jobLookupId.trim();
+    if (!trimmedJobId) {
+      return;
+    }
+
+    setIsLoadingJob(true);
+    setError("");
+
+    try {
+      const nextJob = await fetchIngestionJob(token, trimmedJobId);
+      saveLastIngestionJobId(nextJob.id);
+      setRecentDomainIds(rememberDomainId(nextJob.domain_id));
+      setJob(nextJob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load job");
+    } finally {
+      setIsLoadingJob(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto grid max-w-6xl gap-6">
+      <section className="grid gap-2">
+        <h1 className="text-3xl font-semibold tracking-normal">Upload</h1>
+        <p className="max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+          Submit PDFs into the ingestion worker. The API returns a job ID
+          immediately while the worker extracts, chunks, embeds, and indexes.
+        </p>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <section className="surface rounded-lg p-5">
+          <form className="space-y-5" onSubmit={handleSubmit}>
+            <DomainSelect
+              domains={domains}
+              recentDomainIds={recentDomainIds}
+              selectedDomainId={selectedDomainId}
+              manualDomainId={manualDomainId}
+              loading={isLoadingDomains}
+              onSelectDomain={setSelectedDomainId}
+              onManualDomain={setManualDomainId}
+            />
+
+            <label className="grid min-h-64 cursor-pointer place-items-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800">
+              <input
+                className="sr-only"
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={handleFileChange}
+              />
+              <div>
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-lg bg-white text-zinc-950 dark:bg-zinc-950 dark:text-white">
+                  <UploadCloud size={26} />
+                </div>
+                <p className="mt-4 font-semibold">
+                  {file ? file.name : "Choose a PDF"}
+                </p>
+                <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                  {file ? `${Math.ceil(file.size / 1024)} KB selected` : "PDF only"}
+                </p>
+              </div>
+            </label>
+
+            {error ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+                {error}
+              </p>
+            ) : null}
+
+            <button className="button-primary w-full" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <Loader2 className="animate-spin" size={17} />
+              ) : (
+                <FileUp size={17} />
+              )}
+              Upload PDF
+            </button>
+          </form>
+        </section>
+
+        <aside className="surface rounded-lg p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Job Status</p>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Polling every 2 seconds
+              </p>
+            </div>
+            <FileText size={20} />
+          </div>
+
+          {job ? (
+            <div className="mt-6 space-y-5">
+              <StatusBadge status={job.status} />
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
+                    Job ID
+                  </p>
+                  <p className="mt-1 break-all font-mono text-xs">{job.id}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
+                    File
+                  </p>
+                  <p className="mt-1">{job.filename}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
+                    Domain
+                  </p>
+                  <p className="mt-1 break-all">{job.domain_id}</p>
+                </div>
+                {job.error_message ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+                    {job.error_message}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-8 rounded-lg border border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+              No active upload job.
+            </div>
+          )}
+
+          <form className="mt-5 space-y-3" onSubmit={handleLoadJob}>
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
+                Load Job ID
+              </span>
+              <input
+                className="control"
+                value={jobLookupId}
+                onChange={(event) => setJobLookupId(event.target.value)}
+                placeholder="paste job id"
+              />
+            </label>
+            <button
+              className="button-secondary w-full"
+              type="submit"
+              disabled={isLoadingJob || !jobLookupId.trim()}
+            >
+              {isLoadingJob ? <Loader2 className="animate-spin" size={17} /> : null}
+              Load status
+            </button>
+          </form>
+        </aside>
+      </div>
+    </div>
+  );
+}

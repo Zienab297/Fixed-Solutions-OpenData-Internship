@@ -1,6 +1,6 @@
 # Sprint 1: Infrastructure, LLM Routing, and Architecture Diagrams
 
-This branch contains the Sprint 1 foundation work for the multi-user, multi-domain RAG MVP.
+This folder is a standalone Sprint 1 work package. It is intentionally created from zero and does not depend on the existing project files.
 
 ## Scope
 
@@ -11,24 +11,30 @@ This package covers the assigned Sprint 1 tasks:
 - CI/CD skeleton
 - Docker Compose local stack
 - Architecture diagrams
+- React web UI for login, chat, and PDF upload
+- PDF ingestion API skeleton with Celery, Redis, pdfplumber, sentence-transformers, and Qdrant
 
 ## Folder Layout
 
 ```text
-.github/workflows/ci.yml
-backend/
-docs/
-  adr/
-  architecture/
-frontend/
-infrastructure/
-  docker/
-shared/
+sprint1-infra-llm-routing-diagrams/
+  .github/workflows/ci.yml
+  backend/
+    app/
+      ingestion/
+  docs/
+    adr/
+    architecture/
+  frontend/
+    src/
+  infrastructure/
+    docker/
+  shared/
 ```
 
 ## Local Run
 
-From the repository root:
+From this folder:
 
 ```powershell
 docker compose -f infrastructure/docker/docker-compose.yml up --build
@@ -38,9 +44,19 @@ Useful URLs:
 
 - API health: http://localhost:8000/health
 - API docs: http://localhost:8000/docs
-- Frontend placeholder: http://localhost:3000
+- Frontend app: http://localhost:3000
 
-The Compose stack is intentionally minimal for Sprint 1. Vector DB, graph DB, auth, workers, and observability are shown in diagrams as integration points, but not locked into Docker services until their ADRs are approved.
+The Compose stack runs the API, React frontend, Redis broker, Celery worker, and Qdrant vector database. Graph DB and observability remain documented integration points for later sprint work.
+
+## Frontend Dev Run
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api` calls to `http://localhost:8000`.
 
 ## Backend Test Run
 
@@ -48,6 +64,12 @@ The Compose stack is intentionally minimal for Sprint 1. Vector DB, graph DB, au
 python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
 python -m pytest
 ```
+
+## Ingestion Flow
+
+The upload page calls `POST /api/v1/ingest` with a PDF file and `domain_id`. The API saves the file, creates an `ingestion_jobs` record with `pending` status, enqueues a Celery task, and returns the job immediately. The frontend polls `GET /api/v1/ingest/{job_id}` every 2 seconds.
+
+The worker extracts text with `pdfplumber`, skips OCR for scanned PDFs in Sprint 1, chunks text with a simple overlapping character splitter, embeds chunks with `sentence-transformers` using `EMBEDDING_MODEL`, and upserts chunk vectors and payload metadata into Qdrant.
 
 ## Main Sprint 1 Decisions
 
