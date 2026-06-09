@@ -1,39 +1,43 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from fastapi import HTTPException, status
 from app.models.domain import Domain, UserDomainRole
 from app.schemas.domain import DomainCreate, MembershipCreate
-from app.models.user import Role, User
+from app.models.user import Role
+
 
 # --- Domain operations ---
 
-def create_domain(db: Session, data: DomainCreate, created_by: str) -> Domain:
-    # check if domain name already exists
-    existing = db.query(Domain).filter(Domain.name == data.name).first()
+async def create_domain(db: AsyncSession, data: DomainCreate, created_by: str) -> Domain:
+    result = await db.execute(select(Domain).where(Domain.name == data.name))
+    existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Domain '{data.name}' already exists"
         )
-    
+
     domain = Domain(
         name=data.name,
         description=data.description,
         created_by=created_by
     )
     db.add(domain)
-    db.commit()
-    db.refresh(domain)
+    await db.commit()
+    await db.refresh(domain)
 
-    # creator automatically gets admin role in their domain
-    add_member(db, domain_id=domain.id, data=MembershipCreate(
+    # Creator automatically gets admin role in their domain
+    await add_member(db, domain_id=domain.id, data=MembershipCreate(
         user_id=created_by,
         role=Role.admin
     ))
 
     return domain
 
-def get_domain(db: Session, domain_id: str) -> Domain:
-    domain = db.query(Domain).filter(Domain.id == domain_id).first()
+
+async def get_domain(db: AsyncSession, domain_id: str) -> Domain:
+    result = await db.execute(select(Domain).where(Domain.id == domain_id))
+    domain = result.scalar_one_or_none()
     if not domain:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -41,27 +45,33 @@ def get_domain(db: Session, domain_id: str) -> Domain:
         )
     return domain
 
-def get_all_domains(db: Session, include_archived: bool = False):
-    query = db.query(Domain)
-    if not include_archived:
-        query = query.filter(Domain.is_archived == False)
-    return query.all()
 
-def archive_domain(db: Session, domain_id: str, is_archived: bool) -> Domain:
-    domain = get_domain(db, domain_id)
+async def get_all_domains(db: AsyncSession, include_archived: bool = False):
+    query = select(Domain)
+    if not include_archived:
+        query = query.where(Domain.is_archived == False)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+async def archive_domain(db: AsyncSession, domain_id: str, is_archived: bool) -> Domain:
+    domain = await get_domain(db, domain_id)
     domain.is_archived = is_archived
-    db.commit()
-    db.refresh(domain)
+    await db.commit()
+    await db.refresh(domain)
     return domain
+
 
 # --- Membership operations ---
 
-def add_member(db: Session, domain_id: str, data: MembershipCreate) -> UserDomainRole:
-    # check user isn't already a member
-    existing = db.query(UserDomainRole).filter(
-        UserDomainRole.domain_id == domain_id,
-        UserDomainRole.user_id == data.user_id
-    ).first()
+async def add_member(db: AsyncSession, domain_id: str, data: MembershipCreate) -> UserDomainRole:
+    result = await db.execute(
+        select(UserDomainRole).where(
+            UserDomainRole.domain_id == domain_id,
+            UserDomainRole.user_id == data.user_id
+        )
+    )
+    existing = result.scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -74,18 +84,24 @@ def add_member(db: Session, domain_id: str, data: MembershipCreate) -> UserDomai
         role=data.role
     )
     db.add(membership)
-    db.commit()
-    db.refresh(membership)
+    await db.commit()
+    await db.refresh(membership)
     return membership
 
-def get_user_domain_role(db: Session, domain_id: str, user_id: str) -> Role | None:
-    membership = db.query(UserDomainRole).filter(
-        UserDomainRole.domain_id == domain_id,
-        UserDomainRole.user_id == user_id
-    ).first()
+
+async def get_user_domain_role(db: AsyncSession, domain_id: str, user_id: str) -> Role | None:
+    result = await db.execute(
+        select(UserDomainRole).where(
+            UserDomainRole.domain_id == domain_id,
+            UserDomainRole.user_id == user_id
+        )
+    )
+    membership = result.scalar_one_or_none()
     return membership.role if membership else None
 
-def get_user_domains(db: Session, user_id: str):
-    return db.query(UserDomainRole).filter(
-        UserDomainRole.user_id == user_id
-    ).all()
+
+async def get_user_domains(db: AsyncSession, user_id: str):
+    result = await db.execute(
+        select(UserDomainRole).where(UserDomainRole.user_id == user_id)
+    )
+    return result.scalars().all()

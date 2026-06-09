@@ -11,7 +11,7 @@ pydantic-settings==2.3.0
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
 alembic==1.13.1
-
+asyncpg==0.31.0
 # Vector DB
 qdrant-client==1.9.1
 

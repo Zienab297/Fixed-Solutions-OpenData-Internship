@@ -37,4 +37,4 @@ Thumbs.db
 # ML models (large files)
 *.bin
 *.safetensors
-models/
+
