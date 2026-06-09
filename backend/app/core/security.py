@@ -1,54 +1,70 @@
-"""
-Authentication and authorization utilities.
-Handles both OIDC tokens (human users) and API keys (machine clients).
-"""
-import hashlib
-import secrets
-from typing import Optional
-from fastapi import HTTPException, Security, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from jose import jwt, JWTError
-import httpx
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+import jwt as pyjwt
 from app.core.config import settings
-
-bearer_scheme = HTTPBearer(auto_error=False)
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-def hash_api_key(raw_key: str) -> str:
-    """Hash API key before storing — never store raw keys."""
-    return hashlib.sha256(raw_key.encode()).hexdigest()
+from app.core.database import get_db
+from app.models.user import User, Role
 
 
-def generate_api_key() -> tuple[str, str]:
-    """Generate a new API key. Returns (raw_key, hashed_key)."""
-    raw_key = f"sk-{secrets.token_urlsafe(32)}"
-    return raw_key, hash_api_key(raw_key)
+bearer_scheme = HTTPBearer()
 
 
-async def get_keycloak_public_key() -> str:
-    """Fetch Keycloak realm public key for token verification."""
-    url = f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}"
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.json()["public_key"]
+async def get_or_create_user(db: AsyncSession, keycloak_id: str, email: str, role: Role) -> User:
+    result = await db.execute(select(User).where(User.keycloak_id == keycloak_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(keycloak_id=keycloak_id, email=email, role=role)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    return user
 
 
-async def verify_oidc_token(token: str) -> dict:
-    """Verify OIDC JWT token from Keycloak."""
+def decode_token(token: str) -> dict:
+    jwks_client = pyjwt.PyJWKClient(
+        f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/certs"
+    )
     try:
-        public_key = await get_keycloak_public_key()
-        formatted_key = f"-----BEGIN PUBLIC KEY-----\n{public_key}\n-----END PUBLIC KEY-----"
-        payload = jwt.decode(
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        return pyjwt.decode(
             token,
-            formatted_key,
+            signing_key.key,
             algorithms=["RS256"],
-            audience=settings.KEYCLOAK_CLIENT_ID,
+            options={"verify_aud": False}
         )
-        return payload
-    except JWTError as e:
+    except pyjwt.PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {str(e)}",
+            detail=f"Invalid token: {e}"
         )
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    payload = decode_token(credentials.credentials)
+    keycloak_id = payload.get("sub")
+    email = payload.get("email", "")
+    realm_roles = payload.get("realm_access", {}).get("roles", [])
+
+    role = Role.reader
+    if "admin" in realm_roles:
+        role = Role.admin
+    elif "contributor" in realm_roles:
+        role = Role.contributor
+
+    return await get_or_create_user(db, keycloak_id, email, role)
+
+
+def require_role(*allowed_roles: Role):
+    async def checker(current_user: User = Depends(get_current_user)):
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions"
+            )
+        return current_user
+    return checker
