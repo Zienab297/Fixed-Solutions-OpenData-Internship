@@ -51,11 +51,25 @@ class VectorSearchService:
         return sorted(all_results, key=lambda x: x["score"], reverse=True)[:top_k]
 
     async def create_domain_collection(self, domain_id: UUID):
-        """Create a Qdrant collection for a new domain."""
+        """Create a Qdrant collection for a new domain (idempotent)."""
         from qdrant_client.models import VectorParams, Distance
         collection = self._collection_name(domain_id)
+        existing = {c.name for c in (await self.client.get_collections()).collections}
+        if collection in existing:
+            return  # already provisioned
         await self.client.create_collection(
             collection_name=collection,
             vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
-            # 1024 = mE5-large embedding dimension
         )
+
+    async def delete_domain_collection(self, domain_id: UUID) -> bool:
+        """
+        Drop the Qdrant collection for an archived domain.
+        Returns True if deleted, False if it did not exist.
+        """
+        collection = self._collection_name(domain_id)
+        existing = {c.name for c in (await self.client.get_collections()).collections}
+        if collection not in existing:
+            return False
+        await self.client.delete_collection(collection_name=collection)
+        return True

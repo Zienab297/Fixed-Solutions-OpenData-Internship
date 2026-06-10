@@ -39,6 +39,22 @@ async def create_domain(db: AsyncSession, data: DomainCreate, created_by_user: U
     )
     db.add(role)
     await db.refresh(domain)
+
+    # Provision a Qdrant collection for this domain.
+    # Done eagerly so the collection exists before the first document is
+    # ingested. The DocumentProcessor also creates it idempotently on
+    # upsert, so a failure here is non-fatal.
+    try:
+        from app.services.retrieval.vector_search import VectorSearchService
+        vs = VectorSearchService()
+        await vs.create_domain_collection(domain.id)
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(
+            "Could not provision Qdrant collection for domain %s: %s",
+            domain.id, exc,
+        )
+
     return domain
 
 

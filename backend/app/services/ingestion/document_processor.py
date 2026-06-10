@@ -38,6 +38,81 @@ logger = logging.getLogger(__name__)
 # Sync embedding helper (wraps the async EmbeddingService via httpx sync)
 # ---------------------------------------------------------------------------
 
+def _upsert_chunks_to_qdrant(
+    domain_id: UUID,
+    chunk_rows: list,
+    embeddings: list[list[float]],
+    document_title: str,
+) -> None:
+    """
+    Upsert chunk embeddings into the domain's Qdrant collection.
+
+    Collection name mirrors VectorSearchService._collection_name():
+      domain_<uuid_with_underscores>
+
+    Each point stores the metadata needed for retrieval so callers
+    never have to round-trip back to Postgres for basic fields.
+    Falls back gracefully if Qdrant is unreachable (dev / test safety).
+    """
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import PointStruct, VectorParams, Distance
+
+    collection = f"domain_{str(domain_id).replace('-', '_')}"
+
+    try:
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+
+        # Ensure collection exists (idempotent — create_collection raises if it
+        # already exists, so we catch that and continue).
+        try:
+            client.create_collection(
+                collection_name=collection,
+                vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
+            )
+            logger.info("Qdrant collection created: %s", collection)
+        except Exception:
+            # Collection already exists — safe to continue.
+            pass
+
+        points = [
+            PointStruct(
+                id=str(chunk_rows[i].id),
+                vector=embeddings[i],
+                payload={
+                    "content": chunk_rows[i].content,
+                    "document_title": document_title,
+                    "page_number": chunk_rows[i].page_number,
+                    "section": chunk_rows[i].section,
+                    "domain_id": str(domain_id),
+                    "chunk_index": chunk_rows[i].chunk_index,
+                },
+            )
+            for i in range(len(chunk_rows))
+        ]
+
+        # Upsert in batches of 100 to avoid large payloads
+        batch_size = 100
+        for start in range(0, len(points), batch_size):
+            client.upsert(
+                collection_name=collection,
+                points=points[start : start + batch_size],
+            )
+
+        logger.info(
+            "Qdrant upsert complete: collection=%s, %d points",
+            collection,
+            len(points),
+        )
+
+    except Exception as exc:
+        logger.error(
+            "Qdrant upsert failed for collection=%s: %s. "
+            "Chunks are stored in Postgres; re-index Qdrant to recover.",
+            collection,
+            exc,
+        )
+
+
 def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
     """
     Call Ollama /api/embed synchronously.
@@ -217,8 +292,13 @@ class DocumentProcessor:
         db.add_all(chunk_rows)
         db.flush()
 
-        # TODO: upsert embeddings[i] into Qdrant with point_id = str(chunk_rows[i].id)
-        # This will be wired in the Qdrant integration sprint.
+        # Upsert embeddings into Qdrant
+        _upsert_chunks_to_qdrant(
+            domain_id=domain_id,
+            chunk_rows=chunk_rows,
+            embeddings=embeddings,
+            document_title=filename,
+        )
 
         # 7. Mark completed
         self._set_status(db, document_id, "completed")
