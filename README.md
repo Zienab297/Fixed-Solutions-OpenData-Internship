@@ -442,3 +442,22 @@ Expected response:
 | `403 Forbidden` | User role not sufficient for this endpoint | Use admin token or check role assignment in Keycloak |
 | `422 Unprocessable Entity` | Request body is wrong format | Make sure Body is set to raw → JSON |
 | `Could not validate credentials` | Token expired | Re-run the get-token request to refresh |
+
+
+
+
+# Wiring up the postgres db and domain roles
+ #### each of those commands should run in a different terminal
+ docker composed only the necessary
+to run this command you must be inside the folder `infrastructure/docker`
+ ```docker compose -f docker-compose.dev.yml up```
+
+ tested the backend with uvicorn to open swagger 
+to run this command you must be inside the folder `backend`
+ ```python -m uvicorn app.main:app --reload --port 8000```
+
+ to run this command you must be inside the folder `backend`
+  celery is used to queue tasks
+ `celery -A app.workers.celery_app worker --loglevel=info --concurrency=2`
+ 
+ 
