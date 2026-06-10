@@ -25,6 +25,7 @@ from app.repositories.document_repository import (
     FileChangedError,
 )
 from app.workers.tasks import process_document, process_web_crawl
+import base64
 
 router = APIRouter(prefix="/ingest", tags=["Ingestion"])
 
@@ -108,12 +109,17 @@ async def ingest_document(
             ).model_dump(mode="json"),
         )
 
-    job = process_document.delay(
-        document_id=str(doc.id),
-        domain_id=str(domain_id),
-        file_content=file_bytes,
-        filename=file.filename,
-    )
+    try:
+        job = process_document.delay(
+            document_id=str(doc.id),
+            domain_id=str(domain_id),
+            file_content=base64.b64encode(file_bytes).decode('utf-8'),
+            filename=file.filename,
+        )
+        print("TASK QUEUED:", job.id)
+    except Exception as e:
+        print("TASK DISPATCH FAILED:", e)
+        raise
 
     return IngestJobResponse(
         job_id=job.id,

@@ -11,10 +11,11 @@ Flow
 2. Extract raw text from the file bytes
 3. Fetch domain chunk_size / chunk_overlap settings
 4. Chunk the text
-5. Embed each chunk (via Ollama)
+5. Embed each chunk in small batches (via Ollama)
 6. INSERT rows into rag.chunks
-7. Set document.ingest_status = 'completed'
-8. On any error → set status = 'failed', re-raise so Celery can retry
+7. Upsert embeddings into Qdrant
+8. Set document.ingest_status = 'completed'
+9. On any error → set status = 'failed', re-raise so Celery can retry
 """
 from __future__ import annotations
 
@@ -33,9 +34,65 @@ from app.services.ingestion.chunker import ChunkerService
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Embedding batch size: keep small so Ollama never needs >30 s per call.
+# bge-m3 on CPU: ~10-15 chunks/s → 20 chunks ≈ 1-2 s per batch.
+# Increase to 50 if running on GPU-backed Ollama.
+# ---------------------------------------------------------------------------
+_EMBED_BATCH_SIZE = 20
+
+
+def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
+    """
+    Call Ollama /api/embed synchronously in small batches.
+
+    Why batched?
+    Ollama processes embeddings sequentially internally. Sending 200 chunks
+    in a single 120 s request means the worker is blocked the whole time and
+    any transient failure forces a full retry. Splitting into batches of
+    _EMBED_BATCH_SIZE gives ~1-2 s per call, makes progress visible in logs,
+    and lets the worker recover cheaply on partial failure.
+
+    Falls back to zero vectors per batch if Ollama is unreachable (dev/test
+    safety) so DB writes still succeed and Qdrant can be re-indexed later.
+    """
+    import httpx
+
+    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embed"
+    all_embeddings: list[list[float]] = []
+
+    for batch_start in range(0, len(texts), _EMBED_BATCH_SIZE):
+        batch = texts[batch_start : batch_start + _EMBED_BATCH_SIZE]
+        try:
+            response = httpx.post(
+                url,
+                json={"model": settings.EMBEDDING_MODEL, "input": batch},
+                timeout=60.0,  # 60 s is plenty for ≤20 chunks
+            )
+            response.raise_for_status()
+            batch_embeddings = response.json()["embeddings"]
+            all_embeddings.extend(batch_embeddings)
+            logger.debug(
+                "Embedded batch %d-%d / %d",
+                batch_start,
+                batch_start + len(batch) - 1,
+                len(texts),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Ollama embedding failed for batch %d-%d (%s). "
+                "Storing zero vectors — re-embed after Ollama is available.",
+                batch_start,
+                batch_start + len(batch) - 1,
+                exc,
+            )
+            all_embeddings.extend([[0.0] * 1024 for _ in batch])
+
+    return all_embeddings
+
 
 # ---------------------------------------------------------------------------
-# Sync embedding helper (wraps the async EmbeddingService via httpx sync)
+# Qdrant upsert helper
 # ---------------------------------------------------------------------------
 
 def _upsert_chunks_to_qdrant(
@@ -62,8 +119,7 @@ def _upsert_chunks_to_qdrant(
     try:
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
-        # Ensure collection exists (idempotent — create_collection raises if it
-        # already exists, so we catch that and continue).
+        # Ensure collection exists (idempotent).
         try:
             client.create_collection(
                 collection_name=collection,
@@ -71,8 +127,7 @@ def _upsert_chunks_to_qdrant(
             )
             logger.info("Qdrant collection created: %s", collection)
         except Exception:
-            # Collection already exists — safe to continue.
-            pass
+            pass  # Collection already exists — safe to continue.
 
         points = [
             PointStruct(
@@ -91,11 +146,10 @@ def _upsert_chunks_to_qdrant(
         ]
 
         # Upsert in batches of 100 to avoid large payloads
-        batch_size = 100
-        for start in range(0, len(points), batch_size):
+        for start in range(0, len(points), 100):
             client.upsert(
                 collection_name=collection,
-                points=points[start : start + batch_size],
+                points=points[start : start + 100],
             )
 
         logger.info(
@@ -113,34 +167,6 @@ def _upsert_chunks_to_qdrant(
         )
 
 
-def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
-    """
-    Call Ollama /api/embed synchronously.
-    Returns a list of float vectors, one per input text.
-    Falls back to zero vectors if Ollama is unreachable (dev/test safety).
-    """
-    import httpx
-
-    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embed"
-    try:
-        response = httpx.post(
-            url,
-            json={"model": settings.EMBEDDING_MODEL, "input": texts},
-            timeout=120.0,
-        )
-        response.raise_for_status()
-        return response.json()["embeddings"]
-    except Exception as exc:
-        logger.warning(
-            "Ollama embedding failed (%s). Storing zero vectors — "
-            "re-embed after Ollama is available.",
-            exc,
-        )
-        # Return zero vectors so DB writes still succeed; Qdrant upsert
-        # can be retried independently once Ollama is back up.
-        return [[0.0] * 1024 for _ in texts]
-
-
 # ---------------------------------------------------------------------------
 # Text extraction helpers
 # ---------------------------------------------------------------------------
@@ -148,10 +174,10 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
 def _extract_text_from_pdf(file_bytes: bytes) -> list[tuple[int, str]]:
     """
     Returns list of (page_number, text) tuples.
-    Falls back to OCR if pypdf finds no text on a page.
+    Falls back to plain decode if pypdf is not installed.
     """
     try:
-        import pypdf  # pypdf>=3
+        import pypdf
         reader = pypdf.PdfReader(io.BytesIO(file_bytes))
         pages = []
         for i, page in enumerate(reader.pages, start=1):
@@ -159,7 +185,6 @@ def _extract_text_from_pdf(file_bytes: bytes) -> list[tuple[int, str]]:
             pages.append((i, text.strip()))
         return pages
     except ImportError:
-        # pypdf not installed — return whole bytes decoded as utf-8 best-effort
         logger.warning("pypdf not installed; treating PDF as plain text.")
         return [(1, file_bytes.decode("utf-8", errors="replace"))]
 
@@ -169,7 +194,7 @@ def _extract_text(filename: str, file_bytes: bytes) -> list[tuple[int, str]]:
     lower = filename.lower()
     if lower.endswith(".pdf"):
         return _extract_text_from_pdf(file_bytes)
-    # For docx/csv/xlsx we return a single "page" — extend as needed
+    # txt / csv / other text formats
     return [(1, file_bytes.decode("utf-8", errors="replace"))]
 
 
@@ -205,7 +230,6 @@ class DocumentProcessor:
             try:
                 self._process(db, doc_uuid, domain_uuid, file_content, filename)
             except Exception:
-                # Best-effort status update — don't mask the original error
                 try:
                     self._mark_failed(db, doc_uuid)
                     db.commit()
@@ -239,7 +263,9 @@ class DocumentProcessor:
         # 3. Extract text per page
         pages = _extract_text(filename, file_content)
         if not pages or all(not text for _, text in pages):
-            logger.warning("document_id=%s: no text extracted from %s", document_id, filename)
+            logger.warning(
+                "document_id=%s: no text extracted from %s", document_id, filename
+            )
             self._set_status(db, document_id, "completed")
             db.commit()
             return
@@ -256,25 +282,32 @@ class DocumentProcessor:
                 page_number=page_num,
             )
             for c in chunks:
-                all_chunks_data.append({
-                    "content": c.content,
-                    "chunk_index": c.chunk_index + len(all_chunks_data),
-                    "page_number": c.page_number,
-                    "section": c.section,
-                    "metadata": c.metadata or {},
-                })
+                all_chunks_data.append(
+                    {
+                        "content": c.content,
+                        "chunk_index": c.chunk_index + len(all_chunks_data),
+                        "page_number": c.page_number,
+                        "section": c.section,
+                        "metadata": c.metadata or {},
+                    }
+                )
 
         if not all_chunks_data:
             self._set_status(db, document_id, "completed")
             db.commit()
             return
 
-        # 5. Embed in one batch call
+        # 5. Embed in small batches (fixes the 120 s single-call bottleneck)
         texts = [c["content"] for c in all_chunks_data]
+        logger.info(
+            "document_id=%s: embedding %d chunks in batches of %d",
+            document_id,
+            len(texts),
+            _EMBED_BATCH_SIZE,
+        )
         embeddings = _embed_texts_sync(texts)
 
-        # 6. Build and insert Chunk ORM rows
-        # (embeddings themselves go to Qdrant; we only write metadata here)
+        # 6. Build and INSERT Chunk ORM rows
         chunk_rows = []
         for i, chunk_data in enumerate(all_chunks_data):
             row = ChunkModel(
@@ -290,9 +323,9 @@ class DocumentProcessor:
             chunk_rows.append(row)
 
         db.add_all(chunk_rows)
-        db.flush()
+        db.flush()  # assign IDs before Qdrant upsert
 
-        # Upsert embeddings into Qdrant
+        # 7. Upsert embeddings into Qdrant
         _upsert_chunks_to_qdrant(
             domain_id=domain_id,
             chunk_rows=chunk_rows,
@@ -300,12 +333,14 @@ class DocumentProcessor:
             document_title=filename,
         )
 
-        # 7. Mark completed
+        # 8. Mark completed
         self._set_status(db, document_id, "completed")
         db.commit()
         logger.info(
             "document_id=%s: ingested %d chunks from %s",
-            document_id, len(chunk_rows), filename,
+            document_id,
+            len(chunk_rows),
+            filename,
         )
 
     @staticmethod
@@ -321,6 +356,9 @@ class DocumentProcessor:
         """Safe status downgrade — only moves processing→failed."""
         db.execute(
             update(Document)
-            .where(Document.id == document_id, Document.ingest_status == "processing")
+            .where(
+                Document.id == document_id,
+                Document.ingest_status == "processing",
+            )
             .values(ingest_status="failed")
         )
