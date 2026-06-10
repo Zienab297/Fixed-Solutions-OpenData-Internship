@@ -61,13 +61,15 @@ class RetrievalPipeline:
             )
 
         if "bm25" in signals_used:
+            # FIX: pass self.db so BM25 can query PostgreSQL
             bm25_results = await self.bm25_search.search(
-                query=query, domain_ids=domain_ids, top_k=top_k * 2
+                query=query, domain_ids=domain_ids, top_k=top_k * 2, db=self.db
             )
 
         if "graph" in signals_used and has_entities:
+            # FIX: pass self.db so GraphSearch can query Apache AGE
             graph_results = await self.graph_search.search(
-                entities=entities, domain_ids=domain_ids
+                entities=entities, domain_ids=domain_ids, db=self.db
             )
 
         # Step 4 — RRF fusion

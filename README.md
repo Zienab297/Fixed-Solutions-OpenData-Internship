@@ -458,6 +458,6 @@ to run this command you must be inside the folder `backend`
 
  to run this command you must be inside the folder `backend`
   celery is used to queue tasks
- `celery -A app.workers.celery_app worker --loglevel=info --concurrency=2`
+ `celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo`
  
  

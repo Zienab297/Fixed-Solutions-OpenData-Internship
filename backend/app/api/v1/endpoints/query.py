@@ -5,21 +5,55 @@ Retrieval (vector + BM25 + graph) → LLM generation → async judge evaluation.
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select
 
 from app.core.database import get_db
-from app.api.v1.dependencies.auth import get_current_user, require_domain_access
-from app.models.schemas.auth import CurrentUser
-from app.schemas.query import QueryRequest, QueryResponse, Citation
+from app.core.security import get_current_user
+from app.models.db.models import User, DomainRole
+from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.services.llm.router import LLMRouter
 
 router = APIRouter(prefix="/query", tags=["Query"])
 
 
+async def _check_domain_access(
+    domain_id: UUID,
+    required_role: str,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """
+    Inline RBAC check: raises 403 if the user does not hold at least the
+    required role on the given domain.
+
+    Role hierarchy:  domain_admin ≥ contributor ≥ reader
+    """
+    from fastapi import HTTPException, status
+
+    ROLE_LEVELS = {"reader": 0, "contributor": 1, "domain_admin": 2}
+    required_level = ROLE_LEVELS.get(required_role, 0)
+
+    result = await db.execute(
+        select(DomainRole).where(
+            DomainRole.user_id == current_user.id,
+            DomainRole.domain_id == domain_id,
+        )
+    )
+    dr = result.scalar_one_or_none()
+
+    if dr is None or ROLE_LEVELS.get(dr.role, -1) < required_level:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient domain permissions",
+        )
+
+
 @router.post("", response_model=QueryResponse)
 async def query(
     request: QueryRequest,
-    current_user: CurrentUser = Depends(get_current_user),
+    # FIX: get_current_user returns a User ORM object, not CurrentUser Pydantic model
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> QueryResponse:
     # RBAC — verify access to all requested domains
@@ -27,11 +61,11 @@ async def query(
     domain_routes = {}
     for domain_id_str in request.domain_ids:
         domain_id = UUID(domain_id_str)
-        await require_domain_access(domain_id, "reader", current_user, db)
+        # FIX: use inline helper with correct signature (domain_id, role, user, db)
+        await _check_domain_access(domain_id, "reader", current_user, db)
         domain_uuids.append(domain_id)
 
         # Fetch domain's llm_route for the router
-        from sqlalchemy import text
         result = await db.execute(
             text("SELECT llm_route FROM rag.domains WHERE id = :id"),
             {"id": str(domain_id)},
@@ -40,7 +74,7 @@ async def query(
         if row:
             domain_routes[domain_id_str] = row.llm_route if row.llm_route != "auto" else "local"
 
-    # Retrieval
+    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres
     pipeline = RetrievalPipeline(db)
     retrieval_result = await pipeline.retrieve(
         query=request.query,
@@ -49,7 +83,6 @@ async def query(
     )
 
     # Build ContextChunks for LLMRouter
-    from app.schemas.query import ContextChunk
     context_chunks = [
         ContextChunk(
             content=c["content"],
@@ -75,7 +108,8 @@ async def query(
         query=request.query,
         context=[c.model_dump() for c in context_chunks],
         answer=generation.answer,
-        user_id=current_user.id,
+        # FIX: current_user is a User ORM object; .id is a UUID
+        user_id=str(current_user.id),
         domain_ids=request.domain_ids,
         llm_route=generation.llm_route,
         confidence_score=retrieval_result.confidence_score,

@@ -19,6 +19,10 @@ class BM25SearchService:
         if not db:
             return []
 
+        # FIX: pass domain_ids as a plain Python list — SQLAlchemy + asyncpg
+        # will bind it correctly. Do NOT use ::uuid[] cast inline in the SQL
+        # because asyncpg translates named params to $N positional params first,
+        # leaving the bare ::uuid[] cast as invalid syntax.
         domain_id_strings = [str(d) for d in domain_ids]
 
         result = await db.execute(
@@ -36,7 +40,7 @@ class BM25SearchService:
                 FROM rag.chunks c
                 JOIN rag.domains d ON c.domain_id = d.id
                 JOIN rag.documents doc ON c.document_id = doc.id
-                WHERE c.domain_id = ANY(:domain_ids::uuid[])
+                WHERE c.domain_id::text = ANY(:domain_ids)
                 AND to_tsvector('simple', c.content) @@ plainto_tsquery('simple', :query)
                 ORDER BY score DESC
                 LIMIT :top_k
