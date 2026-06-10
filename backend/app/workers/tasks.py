@@ -9,17 +9,17 @@ from app.workers.celery_app import celery_app
 def process_document(self, document_id: str, domain_id: str, file_content: bytes, filename: str):
     """
     Full document ingestion pipeline:
-    1. Extract text (OCR if needed)
-    2. Chunk with domain-configured settings
-    3. Embed and store in Qdrant
-    4. Update document status
-    5. Trigger entity extraction
+    1. Mark document as 'processing' in rag.documents
+    2. Extract text (OCR if needed)
+    3. Chunk with domain-configured settings
+    4. Embed via Ollama and store in rag.chunks
+    5. Mark document as 'completed' (or 'failed' on error)
+    6. Trigger entity extraction
     """
     try:
         from app.services.ingestion.document_processor import DocumentProcessor
-        import asyncio
         processor = DocumentProcessor()
-        asyncio.run(processor.process(document_id, domain_id, file_content, filename))
+        processor.process(document_id, domain_id, file_content, filename)
 
         # Trigger background entity extraction after chunking
         run_entity_extraction.delay(document_id=document_id, domain_id=domain_id)
@@ -99,8 +99,6 @@ def run_judge_evaluation(
 def run_nightly_regression():
     """
     Nightly regression against golden dataset (§4.5).
-    Runs all golden Q&A pairs through the full pipeline and stores judge scores.
-    Results surfaced in quality dashboard.
     """
     from app.services.evaluation.regression import RegressionRunner
     import asyncio

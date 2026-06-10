@@ -1,9 +1,12 @@
 from pydantic import BaseModel
-from app.models.user import Role
+from uuid import UUID
+import datetime
 
 class UserOut(BaseModel):
+    id: UUID
     keycloak_id: str
     email: str
-    role: Role
+    user_pool: str
+    created_at: datetime.datetime
 
     model_config = {"from_attributes": True}

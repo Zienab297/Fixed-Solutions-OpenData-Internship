@@ -2,7 +2,7 @@ services:
 
   # ── PostgreSQL + Apache AGE ─────────────────────────────────────────
   postgres:
-    image: apache/age
+    image: postgres:16
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ragdb}
       POSTGRES_USER: ${POSTGRES_USER:-raguser}

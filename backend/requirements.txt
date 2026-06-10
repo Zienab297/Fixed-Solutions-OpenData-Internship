@@ -24,6 +24,7 @@ httpx==0.27.0
 # Celery (async jobs)
 celery==5.4.0
 redis==5.0.4
+psycopg2-binary==2.9.9
 
 # ML / Embeddings — bge-m3 via sentence-transformers or Ollama API
 sentence-transformers==3.0.0

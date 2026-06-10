@@ -21,7 +21,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMPTZ, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -46,9 +47,9 @@ class User(Base):
         nullable=False,
         # DB-level constraint mirrors init.sql CHECK
     )
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     __table_args__ = (
@@ -57,9 +58,12 @@ class User(Base):
     )
 
     # relationships
-    domain_roles: Mapped[List["DomainRole"]] = relationship(back_populates="user")
+    # relationships
+    domain_roles: Mapped[List["DomainRole"]] = relationship(
+        back_populates="user", foreign_keys="[DomainRole.user_id]"
+    )
     documents: Mapped[List["Document"]] = relationship(
-        back_populates="ingested_by_user", foreign_keys="Document.ingested_by"
+        back_populates="ingested_by_user", foreign_keys="[Document.ingested_by]"
     )
 
 
@@ -86,9 +90,9 @@ class Domain(Base):
     supported_languages: Mapped[List[str]] = mapped_column(
         ARRAY(Text), server_default="{en}"
     )
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     # relationships
@@ -120,13 +124,15 @@ class DomainRole(Base):
         PGUUID(as_uuid=True), ForeignKey("rag.domains.id", ondelete="CASCADE")
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False)
-    granted_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    granted_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     granted_by: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
     )
 
     # relationships
-    user: Mapped["User"] = relationship(back_populates="domain_roles", foreign_keys=[user_id])
+    user: Mapped["User"] = relationship(
+        back_populates="domain_roles", foreign_keys=[user_id]
+    )
     domain: Mapped["Domain"] = relationship(back_populates="domain_roles")
 
 
@@ -150,9 +156,9 @@ class APIKey(Base):
     allowed_domains: Mapped[Optional[List[UUID]]] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     rate_limit_per_day: Mapped[int] = mapped_column(Integer, server_default="1000")
-    expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ)
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
 
 
@@ -197,9 +203,9 @@ class Document(Base):
     ingested_by: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
     )
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMPTZ, server_default=func.now(), onupdate=func.now()
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     # relationships
@@ -245,7 +251,7 @@ class Chunk(Base):
     # Qdrant point IDs / AGE node IDs stored here for cross-DB linking
     graph_node_ids: Mapped[Optional[List[UUID]]] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}")
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
     # relationships
     document: Mapped["Document"] = relationship(back_populates="chunks")
@@ -287,7 +293,7 @@ class AuditLog(Base):
     citation_accuracy_score: Mapped[Optional[float]] = mapped_column(Float)
     judge_rationale: Mapped[Optional[dict]] = mapped_column(JSONB)
     flagged: Mapped[bool] = mapped_column(Boolean, server_default="false")
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +314,7 @@ class GoldenDataset(Base):
     created_by: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
     )
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -336,8 +342,8 @@ class ModerationQueue(Base):
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
     )
     reviewer_rationale: Mapped[Optional[str]] = mapped_column(Text)
-    reviewed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +365,7 @@ class CrawlConfig(Base):
     url_whitelist: Mapped[List[str]] = mapped_column(ARRAY(Text), nullable=False)
     max_depth: Mapped[int] = mapped_column(Integer, server_default="2")
     crawl_schedule: Mapped[str] = mapped_column(String(100), server_default="0 2 * * *")
-    last_crawled_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMPTZ)
+    last_crawled_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, server_default="true")
 
     domain: Mapped["Domain"] = relationship(back_populates="crawl_config")

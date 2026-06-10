@@ -1,27 +1,29 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import jwt as pyjwt
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.user import User, Role
+from app.models.db.models import User, DomainRole
+
+bearer_scheme = HTTPBearer(auto_error=not settings.DEV_MODE)
 
 
-bearer_scheme = HTTPBearer()
-_jwks_cache = None
-
-def get_or_create_user(db: Session, keycloak_id: str, email: str, role: Role) -> User:
-    user = db.query(User).filter(User.keycloak_id == keycloak_id).first()
+async def get_or_create_user(
+    db: AsyncSession, keycloak_id: str, email: str, user_pool: str = "internal"
+) -> User:
+    result = await db.execute(select(User).where(User.keycloak_id == keycloak_id))
+    user = result.scalar_one_or_none()
     if not user:
-        user = User(keycloak_id=keycloak_id, email=email, role=role)
+        user = User(keycloak_id=keycloak_id, email=email, user_pool=user_pool)
         db.add(user)
-        db.commit()
-        db.refresh(user)
+        await db.flush()
+        await db.refresh(user)
     return user
 
 
 def decode_token(token: str) -> dict:
-    # PyJWT can use the JWKS directly
     jwks_client = pyjwt.PyJWKClient(
         f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/certs"
     )
@@ -31,37 +33,65 @@ def decode_token(token: str) -> dict:
             token,
             signing_key.key,
             algorithms=["RS256"],
-            options={"verify_aud": False}
+            options={"verify_aud": False},
         )
     except pyjwt.PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}"
+            detail=f"Invalid token: {e}",
         )
 
-def get_current_user(
+
+async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ) -> User:
+    # ── DEV MODE: skip Keycloak entirely ──────────────────────────────────
+    if settings.DEV_MODE:
+        return await get_or_create_user(
+            db,
+            keycloak_id=settings.DEV_USER_ID,
+            email=settings.DEV_USER_EMAIL,
+            user_pool="internal",
+        )
+
+    # ── Production: validate JWT ──────────────────────────────────────────
     payload = decode_token(credentials.credentials)
     keycloak_id = payload.get("sub")
     email = payload.get("email", "")
+
+    # Determine pool from realm roles (optional convention)
     realm_roles = payload.get("realm_access", {}).get("roles", [])
+    user_pool = "external" if "external_user" in realm_roles else "internal"
 
-    role = Role.reader
-    if "admin" in realm_roles:
-        role = Role.admin
-    elif "contributor" in realm_roles:
-        role = Role.contributor
+    return await get_or_create_user(db, keycloak_id, email, user_pool)
 
-    return get_or_create_user(db, keycloak_id, email, role)
 
-def require_role(*allowed_roles: Role):
-    def checker(current_user: User = Depends(get_current_user)):
-        if current_user.role not in allowed_roles:
+def require_domain_role(*allowed_roles: str):
+    """
+    Dependency factory: checks the caller has one of `allowed_roles`
+    on a specific domain.  The endpoint must also accept `domain_id` as a
+    path parameter.
+    """
+    from fastapi import Path
+
+    async def checker(
+        domain_id: str = Path(...),
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        result = await db.execute(
+            select(DomainRole).where(
+                DomainRole.user_id == current_user.id,
+                DomainRole.domain_id == domain_id,
+            )
+        )
+        dr = result.scalar_one_or_none()
+        if dr is None or dr.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
+                detail="Insufficient domain permissions",
             )
         return current_user
+
     return checker

@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
     GENERATION_MODEL: str = "qwen3:8b"
-    EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
+    EMBEDDING_MODEL: str = "bge-m3:latest"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333

@@ -38,7 +38,7 @@ ALLOWED_CONTENT_TYPES = {
 
 async def _resolve_user_id(current_user: CurrentUser, db: AsyncSession) -> UUID | None:
     result = await db.execute(
-        select(User.id).where(User.keycloak_id == current_user.id)
+        select(User.id).where(User.keycloak_id == str(current_user.id))
     )
     row = result.scalar_one_or_none()
     return row if row else None
@@ -61,7 +61,7 @@ async def ingest_document(
         409 {error: duplicate}      — exact same file already ingested, nothing to do
         400                         — unsupported file type
     """
-    await require_domain_access(domain_id, "contributor", current_user, db)
+    require_domain_access(domain_id, "contributor", current_user, db)
 
     source_type = ALLOWED_CONTENT_TYPES.get(file.content_type)
     if not source_type:
@@ -139,7 +139,7 @@ async def replace_document(
     Note: Qdrant vectors for the old document are NOT yet cleaned up here —
     that will be hooked in when we implement the Qdrant layer.
     """
-    await require_domain_access(domain_id, "contributor", current_user, db)
+    require_domain_access(domain_id, "contributor", current_user, db)
 
     source_type = ALLOWED_CONTENT_TYPES.get(file.content_type)
     if not source_type:
@@ -185,7 +185,7 @@ async def ingest_web(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await require_domain_access(domain_id, "contributor", current_user, db)
+    require_domain_access(domain_id, "contributor", current_user, db)
 
     result = await db.execute(
         text("SELECT url_whitelist FROM rag.crawl_configs WHERE domain_id = :domain_id"),

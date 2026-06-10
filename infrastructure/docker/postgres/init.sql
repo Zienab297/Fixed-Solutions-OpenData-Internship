@@ -1,7 +1,5 @@
 -- Enable Apache AGE extension for graph queries
-CREATE EXTENSION IF NOT EXISTS age;
-LOAD 'age';
-SET search_path = ag_catalog, "$user", public;
+
 
 -- Enable pgcrypto for UUID generation
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -157,5 +155,3 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON rag.audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON rag.audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_documents_domain ON rag.documents(domain_id);
 CREATE INDEX IF NOT EXISTS idx_domain_roles_user ON rag.domain_roles(user_id);
-
-SELECT create_graph('knowledge_graph');

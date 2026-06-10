@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from app.models.user import Role
-from typing import Optional
+from uuid import UUID
+from typing import Optional, List
 import datetime
 
 # --- Domain schemas ---
@@ -8,30 +8,40 @@ import datetime
 class DomainCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    llm_route: Optional[str] = "auto"
+    confidence_threshold: Optional[float] = 0.7
+    chunk_size: Optional[int] = 512
+    chunk_overlap: Optional[int] = 64
+    supported_languages: Optional[List[str]] = ["en"]
 
 class DomainOut(BaseModel):
-    id: str
+    id: UUID
     name: str
     description: Optional[str] = None
-    is_archived: bool
-    created_by: str
+    status: str
+    llm_route: str
+    confidence_threshold: float
+    chunk_size: int
+    chunk_overlap: int
+    supported_languages: List[str]
     created_at: datetime.datetime
 
     model_config = {"from_attributes": True}
 
 class DomainArchive(BaseModel):
-    is_archived: bool
+    archived: bool  # True = archive, False = restore
 
-# --- Membership schemas ---
+# --- Domain role / membership schemas ---
 
 class MembershipCreate(BaseModel):
-    user_id: str
-    role: Role
+    user_id: UUID
+    role: str  # 'domain_admin' | 'contributor' | 'reader'
 
 class MembershipOut(BaseModel):
-    id: str
-    user_id: str
-    domain_id: str
-    role: Role
+    id: UUID
+    user_id: UUID
+    domain_id: UUID
+    role: str
+    granted_at: datetime.datetime
 
-    model_config = {"from_attributes": True} 
+    model_config = {"from_attributes": True}    
