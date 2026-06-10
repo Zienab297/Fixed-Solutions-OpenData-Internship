@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.endpoints.audit import router as audit_router
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.domains import router as domains_router
+from app.api.v1.endpoints.evaluate import router as evaluate_router
+from app.api.v1.endpoints.main import router as pdf_processing_router
 from app.api.v1.endpoints.query import router as query_router
 from app.core.config import settings
 from app.core.database import Base, engine
@@ -38,6 +41,9 @@ app.include_router(query_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(domains_router, prefix="/api/v1")
 app.include_router(ingestion_router, prefix="/api/v1")
+app.include_router(pdf_processing_router, prefix="/api/v1")
+app.include_router(audit_router, prefix="/api/v1")
+app.include_router(evaluate_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])

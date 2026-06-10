@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     INGESTION_CHUNK_SIZE: int = 2000
     INGESTION_CHUNK_OVERLAP: int = 200
     EMBEDDING_BATCH_SIZE: int = 32
+    EMBEDDING_DIMENSION: int = 384
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

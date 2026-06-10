@@ -13,3 +13,13 @@ redis==5.0.4
 pdfplumber==0.11.0
 sentence-transformers==3.0.1
 qdrant-client==1.9.1
+numpy
+python-dotenv
+langchain
+langchain-community
+langchain-core
+langchain-text-splitters
+pypdf
+tiktoken
+langchain-experimental
+langchain-huggingface

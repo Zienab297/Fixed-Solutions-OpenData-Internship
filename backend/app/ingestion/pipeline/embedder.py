@@ -1,6 +1,10 @@
-from collections.abc import Sequence
+from __future__ import annotations
 
-from sentence_transformers import SentenceTransformer
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingService:
@@ -10,8 +14,10 @@ class EmbeddingService:
         self._model: SentenceTransformer | None = None
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self) -> "SentenceTransformer":
         if self._model is None:
+            from sentence_transformers import SentenceTransformer
+
             self._model = SentenceTransformer(self.model_name)
         return self._model
 
