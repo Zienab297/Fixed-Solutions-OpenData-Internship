@@ -25,6 +25,7 @@ out/
 
 # Docker volumes and local data
 local_data/
+*.db
 
 # IDE and OS
 .idea/

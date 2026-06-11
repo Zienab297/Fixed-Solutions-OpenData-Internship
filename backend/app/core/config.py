@@ -11,8 +11,11 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://:changeme@localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
-    # Ollama — embedding + local generation
-    EMBEDDING_MODEL: str = "bge-m3:latest"
+    # Local embeddings
+    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_DIMENSION: int = 384
+
+    # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     # Local LLM (Ollama OpenAI-compatible endpoint)

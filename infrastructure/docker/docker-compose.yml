@@ -42,7 +42,7 @@ services:
     networks:
       - rag-net
 
-  # ── Ollama (bge-m3 embeddings + generation) ─────────────────────────
+  # ── Ollama (local generation) ───────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -51,8 +51,8 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - rag-net
-    # Pull bge-m3 on first start
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull bge-m3:latest && wait"]
+    # Pull the local generation model on first start
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${GENERATION_MODEL:-llama3.2:3b} && wait"]
 
   # ── FastAPI backend ─────────────────────────────────────────────────
   api:

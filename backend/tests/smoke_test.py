@@ -83,22 +83,18 @@ async def test_query(domain_id: str):
         print(f"✓ Query: {r.status_code} — {r.json()}")
 
 
-async def test_ollama_embed():
-    """Direct Ollama test — bypasses the whole app."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(
-            "http://localhost:11434/api/embed",
-            json={"model": "bge-m3:latest", "input": "hello world"},
-        )
-        data = r.json()
-        vec = data.get("embeddings", [[]])[0]
-        print(f"✓ Ollama embed: dim={len(vec)}, first3={vec[:3]}")
+async def test_local_embed():
+    """Direct local embedding test — bypasses the whole app."""
+    from app.services.ingestion.embedder import EmbeddingService
+
+    vec = await EmbeddingService().embed("hello world")
+    print(f"✓ Local embed: dim={len(vec)}, first3={vec[:3]}")
 
 
 async def main():
     print("\n=== Smoke Tests ===\n")
     await test_health()
-    await test_ollama_embed()
+    await test_local_embed()
 
     domain_id = await test_create_domain()
     if not domain_id:

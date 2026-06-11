@@ -11,7 +11,7 @@ Flow
 2. Extract raw text from the file bytes
 3. Fetch domain chunk_size / chunk_overlap settings
 4. Chunk the text
-5. Embed each chunk in small batches (via Ollama)
+5. Embed each chunk in small batches
 6. INSERT rows into rag.chunks
 7. Upsert embeddings into Qdrant
 8. Set document.ingest_status = 'completed'
@@ -31,46 +31,35 @@ from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.db.models import Chunk as ChunkModel, Document, Domain
 from app.services.ingestion.chunker import ChunkerService
+from app.services.ingestion.embedder import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Embedding batch size: keep small so Ollama never needs >30 s per call.
-# bge-m3 on CPU: ~10-15 chunks/s → 20 chunks ≈ 1-2 s per batch.
-# Increase to 50 if running on GPU-backed Ollama.
+# Embedding batch size: keep memory use predictable for local model inference.
 # ---------------------------------------------------------------------------
 _EMBED_BATCH_SIZE = 20
 
 
 def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
     """
-    Call Ollama /api/embed synchronously in small batches.
+    Embed texts synchronously in small batches.
 
     Why batched?
-    Ollama processes embeddings sequentially internally. Sending 200 chunks
-    in a single 120 s request means the worker is blocked the whole time and
-    any transient failure forces a full retry. Splitting into batches of
-    _EMBED_BATCH_SIZE gives ~1-2 s per call, makes progress visible in logs,
-    and lets the worker recover cheaply on partial failure.
+    Sending all chunks through the local model at once can spike memory usage.
+    Splitting into batches makes progress visible in logs and lets the worker
+    recover cheaply on partial failure.
 
-    Falls back to zero vectors per batch if Ollama is unreachable (dev/test
+    Falls back to zero vectors per batch if model loading or inference fails (dev/test
     safety) so DB writes still succeed and Qdrant can be re-indexed later.
     """
-    import httpx
-
-    url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embed"
+    embedder = EmbeddingService()
     all_embeddings: list[list[float]] = []
 
     for batch_start in range(0, len(texts), _EMBED_BATCH_SIZE):
         batch = texts[batch_start : batch_start + _EMBED_BATCH_SIZE]
         try:
-            response = httpx.post(
-                url,
-                json={"model": settings.EMBEDDING_MODEL, "input": batch},
-                timeout=60.0,  # 60 s is plenty for ≤20 chunks
-            )
-            response.raise_for_status()
-            batch_embeddings = response.json()["embeddings"]
+            batch_embeddings = embedder.embed_sync(batch)
             all_embeddings.extend(batch_embeddings)
             logger.debug(
                 "Embedded batch %d-%d / %d",
@@ -80,13 +69,13 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
             )
         except Exception as exc:
             logger.warning(
-                "Ollama embedding failed for batch %d-%d (%s). "
-                "Storing zero vectors — re-embed after Ollama is available.",
+                "Embedding failed for batch %d-%d (%s). "
+                "Storing zero vectors — re-embed after the model is available.",
                 batch_start,
                 batch_start + len(batch) - 1,
                 exc,
             )
-            all_embeddings.extend([[0.0] * 1024 for _ in batch])
+            all_embeddings.extend([[0.0] * settings.EMBEDDING_DIMENSION for _ in batch])
 
     return all_embeddings
 
@@ -123,7 +112,10 @@ def _upsert_chunks_to_qdrant(
         try:
             client.create_collection(
                 collection_name=collection,
-                vectors_config=VectorParams(size=1024, distance=Distance.COSINE),
+                vectors_config=VectorParams(
+                    size=settings.EMBEDDING_DIMENSION,
+                    distance=Distance.COSINE,
+                ),
             )
             logger.info("Qdrant collection created: %s", collection)
         except Exception:
