@@ -16,14 +16,14 @@ BASE = "http://localhost:8000/api/v1"
 HEADERS = {"Authorization": "Bearer <your-token-here>"}
 
 
-async def test_health():
+async def smoke_health():
     async with httpx.AsyncClient() as client:
         r = await client.get("http://localhost:8000/health")
         assert r.status_code == 200
         print(f"✓ Health: {r.json()}")
 
 
-async def test_create_domain():
+async def smoke_create_domain():
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"{BASE}/domains/",
@@ -34,7 +34,7 @@ async def test_create_domain():
         return r.json().get("id")
 
 
-async def test_ingest_document(domain_id: str):
+async def smoke_ingest_document(domain_id: str):
     async with httpx.AsyncClient(timeout=30.0) as client:
         with open("tests/sample.pdf", "rb") as f:
             r = await client.post(
@@ -47,7 +47,7 @@ async def test_ingest_document(domain_id: str):
         return r.json().get("job_id"), r.json().get("document_id")
 
 
-async def test_ingest_duplicate(domain_id: str):
+async def smoke_ingest_duplicate(domain_id: str):
     """Same file again — should return 409 exact duplicate."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         with open("tests/sample.pdf", "rb") as f:
@@ -62,13 +62,13 @@ async def test_ingest_duplicate(domain_id: str):
         print(f"✓ Duplicate detection: correctly returned 409")
 
 
-async def test_job_status(job_id: str):
+async def smoke_job_status(job_id: str):
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{BASE}/ingest/status/{job_id}", headers=HEADERS)
         print(f"✓ Job status: {r.json()}")
 
 
-async def test_query(domain_id: str):
+async def smoke_query(domain_id: str):
     async with httpx.AsyncClient(timeout=60.0) as client:
         r = await client.post(
             f"{BASE}/query",
@@ -83,7 +83,7 @@ async def test_query(domain_id: str):
         print(f"✓ Query: {r.status_code} — {r.json()}")
 
 
-async def test_local_embed():
+async def smoke_local_embed():
     """Direct local embedding test — bypasses the whole app."""
     from app.services.ingestion.embedder import EmbeddingService
 
@@ -93,25 +93,25 @@ async def test_local_embed():
 
 async def main():
     print("\n=== Smoke Tests ===\n")
-    await test_health()
-    await test_local_embed()
+    await smoke_health()
+    await smoke_local_embed()
 
-    domain_id = await test_create_domain()
+    domain_id = await smoke_create_domain()
     if not domain_id:
         print("✗ Domain creation failed — stopping")
         return
 
-    job_id, doc_id = await test_ingest_document(domain_id)
+    job_id, doc_id = await smoke_ingest_document(domain_id)
     if job_id:
         await asyncio.sleep(3)  # give Celery a moment
-        await test_job_status(job_id)
+        await smoke_job_status(job_id)
 
-    await test_ingest_duplicate(domain_id)
+    await smoke_ingest_duplicate(domain_id)
 
     # Wait for processing before querying
     print("\nWaiting 10s for document processing...")
     await asyncio.sleep(10)
-    await test_query(domain_id)
+    await smoke_query(domain_id)
 
     print("\n=== All smoke tests passed ===\n")
 

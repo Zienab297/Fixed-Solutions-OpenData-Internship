@@ -57,17 +57,15 @@ services:
   # ── FastAPI backend ─────────────────────────────────────────────────
   api:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
-    env_file:
-      - ../../.env
+      context: ../..
+      dockerfile: backend/Dockerfile
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
+      DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
+      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
       MOCK_LLM_RESPONSES: "false"
     ports:
@@ -92,15 +90,16 @@ services:
   # ── Celery worker ───────────────────────────────────────────────────
   worker:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
-    env_file:
-      - ../../.env
     environment:
-      POSTGRES_HOST: postgres
+      DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
+      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
       QDRANT_HOST: qdrant
-      REDIS_HOST: redis
+      QDRANT_PORT: 6333
+      DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
       MOCK_LLM_RESPONSES: "false"
     depends_on:
