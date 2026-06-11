@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://:changeme@localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
-    # Local embeddings
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384
+    # Gemini multimodal embeddings
+    EMBEDDING_MODEL: str = "gemini-embedding-2"
+    EMBEDDING_DIMENSION: int = 3072
 
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"

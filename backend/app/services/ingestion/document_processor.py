@@ -19,6 +19,7 @@ Flow
 """
 from __future__ import annotations
 
+import base64
 import io
 import logging
 from typing import Optional
@@ -191,6 +192,62 @@ def _extract_text(filename: str, file_bytes: bytes) -> list[tuple[int, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Image extraction helpers (multimodal pipeline)
+# ---------------------------------------------------------------------------
+
+def _extract_images_from_pdf(
+    file_bytes: bytes,
+) -> list[tuple[int, str, bytes, str, str]]:
+    """
+    Extract all embedded images from a PDF using PyMuPDF.
+
+    Returns a list of tuples:
+        (page_number, image_id, image_bytes, mime_type, img_base64)
+
+    - page_number : 1-indexed page where the image lives
+    - image_id   : unique key  "page_<N>_img_<M>"  (0-indexed internally)
+    - image_bytes: raw image bytes for embedding
+    - mime_type  : e.g. "image/png" or "image/jpeg"
+    - img_base64 : base64-encoded image (stored in chunk metadata for LLM)
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        logger.warning("PyMuPDF (fitz) not installed; skipping image extraction.")
+        return []
+
+    results: list[tuple[int, str, bytes, str, str]] = []
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+
+    for page_index, page in enumerate(doc):
+        for img_index, img in enumerate(page.get_images(full=True)):
+            try:
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]  # e.g. 'png', 'jpeg'
+
+                # Normalise extension to valid MIME type
+                mime_type = (
+                    "image/jpeg" if image_ext in ("jpg", "jpeg") else f"image/{image_ext}"
+                )
+
+                image_id = f"page_{page_index}_img_{img_index}"
+                img_base64 = base64.b64encode(image_bytes).decode()
+
+                results.append(
+                    (page_index + 1, image_id, image_bytes, mime_type, img_base64)
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Skipping image %d on page %d: %s", img_index, page_index, exc
+                )
+
+    doc.close()
+    return results
+
+
+# ---------------------------------------------------------------------------
 # DocumentProcessor
 # ---------------------------------------------------------------------------
 
@@ -281,6 +338,7 @@ class DocumentProcessor:
                         "page_number": c.page_number,
                         "section": c.section,
                         "metadata": c.metadata or {},
+                        "type": "text",
                     }
                 )
 
@@ -289,17 +347,17 @@ class DocumentProcessor:
             db.commit()
             return
 
-        # 5. Embed in small batches (fixes the 120 s single-call bottleneck)
+        # 5. Embed text chunks in small batches
         texts = [c["content"] for c in all_chunks_data]
         logger.info(
-            "document_id=%s: embedding %d chunks in batches of %d",
+            "document_id=%s: embedding %d text chunks in batches of %d",
             document_id,
             len(texts),
             _EMBED_BATCH_SIZE,
         )
-        embeddings = _embed_texts_sync(texts)
+        text_embeddings = _embed_texts_sync(texts)
 
-        # 6. Build and INSERT Chunk ORM rows
+        # 6. Build and INSERT text Chunk ORM rows
         chunk_rows = []
         for i, chunk_data in enumerate(all_chunks_data):
             row = ChunkModel(
@@ -314,14 +372,68 @@ class DocumentProcessor:
             )
             chunk_rows.append(row)
 
+        all_embeddings = list(text_embeddings)
+
+        # ---------- Multimodal: extract & embed images (PDF only) ----------
+        image_chunk_rows: list[ChunkModel] = []
+        image_embeddings: list[list[float]] = []
+
+        if filename.lower().endswith(".pdf"):
+            embedder = EmbeddingService()
+            extracted_images = _extract_images_from_pdf(file_content)
+            logger.info(
+                "document_id=%s: found %d images in %s",
+                document_id,
+                len(extracted_images),
+                filename,
+            )
+
+            for page_number, image_id, image_bytes, mime_type, img_base64 in extracted_images:
+                try:
+                    img_embedding = embedder.embed_image_sync(image_bytes, mime_type)
+                    image_embeddings.append(img_embedding)
+
+                    image_chunk_index = len(all_chunks_data) + len(image_chunk_rows)
+                    img_row = ChunkModel(
+                        document_id=document_id,
+                        domain_id=domain_id,
+                        # Placeholder content mirrors multimodal_rag_pipeline convention
+                        content=f"[Image: {image_id}]",
+                        chunk_index=image_chunk_index,
+                        page_number=page_number,
+                        section=None,
+                        embedding_model=settings.EMBEDDING_MODEL,
+                        metadata_={
+                            "type": "image",
+                            "image_id": image_id,
+                            "mime_type": mime_type,
+                            # Store base64 so the generation LLM can retrieve it
+                            "image_base64": img_base64,
+                        },
+                    )
+                    image_chunk_rows.append(img_row)
+                    all_embeddings.append(img_embedding)
+
+                except Exception as exc:
+                    logger.warning(
+                        "document_id=%s: failed to embed image %s (%s)",
+                        document_id,
+                        image_id,
+                        exc,
+                    )
+        # -------------------------------------------------------------------
+
         db.add_all(chunk_rows)
+        if image_chunk_rows:
+            db.add_all(image_chunk_rows)
         db.flush()  # assign IDs before Qdrant upsert
 
-        # 7. Upsert embeddings into Qdrant
+        # 7. Upsert all embeddings (text + image) into Qdrant
+        combined_rows = chunk_rows + image_chunk_rows
         _upsert_chunks_to_qdrant(
             domain_id=domain_id,
-            chunk_rows=chunk_rows,
-            embeddings=embeddings,
+            chunk_rows=combined_rows,
+            embeddings=all_embeddings,
             document_title=filename,
         )
 
@@ -329,9 +441,10 @@ class DocumentProcessor:
         self._set_status(db, document_id, "completed")
         db.commit()
         logger.info(
-            "document_id=%s: ingested %d chunks from %s",
+            "document_id=%s: ingested %d text chunks + %d image chunks from %s",
             document_id,
             len(chunk_rows),
+            len(image_chunk_rows),
             filename,
         )
 
