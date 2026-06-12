@@ -29,6 +29,7 @@ class EmbeddingService:
             return await self._embed_batch(text)
 
     async def _embed_one(self, text: str) -> List[float]:
+        print(f"EMBEDDER HITTING: {self.base_url}/api/embed", flush=True)
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{self.base_url}/api/embed",
@@ -42,6 +43,7 @@ class EmbeddingService:
         Ollama /api/embed accepts a list in the input field.
         One HTTP call for the whole batch.
         """
+        print(f"EMBEDDER BATCH HITTING: {self.base_url}/api/embed", flush=True)
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{self.base_url}/api/embed",
