@@ -59,10 +59,7 @@ class VectorSearchService:
             return  # already provisioned
         await self.client.create_collection(
             collection_name=collection,
-            vectors_config=VectorParams(
-                size=settings.EMBEDDING_DIMENSION,
-                distance=Distance.COSINE,
-            ),
+            vectors_config=VectorParams(size=settings.EMBEDDING_DIMENSION, distance=Distance.COSINE),
         )
 
     async def delete_domain_collection(self, domain_id: UUID) -> bool:
