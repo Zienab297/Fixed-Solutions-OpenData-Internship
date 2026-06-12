@@ -446,18 +446,58 @@ Expected response:
 
 
 
-# Wiring up the postgres db and domain roles
- #### each of those commands should run in a different terminal
- docker composed only the necessary
-to run this command you must be inside the folder `infrastructure/docker`
- ```docker compose -f docker-compose.dev.yml up```
+ ## Running the Stack Locally
 
- tested the backend with uvicorn to open swagger 
-to run this command you must be inside the folder `backend`
- ```python -m uvicorn app.main:app --reload --port 8000```
+Each command runs in a separate terminal. Make sure you are in the correct folder before running.
 
- to run this command you must be inside the folder `backend`
-  celery is used to queue tasks
- `celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo`
- 
- 
+**Terminal 1 — Docker services**
+
+From `infrastructure/docker/`:
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+**Terminal 2 — FastAPI backend**
+
+From `backend/`:
+
+```bash
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Swagger UI available at http://localhost:8000/docs
+
+**Terminal 3 — Celery worker**
+
+From `backend/`:
+
+```bash
+celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo
+```
+
+> `--pool=solo` is required on Windows.
+
+**Terminal 4 — Ollama**
+
+```bash
+ollama serve
+```
+
+Pull models if not already downloaded:
+
+```bash
+ollama pull bge-m3:latest
+ollama pull llama3.2:3b
+```
+
+**Terminal 5 — Frontend**
+
+From `frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Frontend available at http://localhost:5173
