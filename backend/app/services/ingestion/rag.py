@@ -3,7 +3,7 @@ rag.py — LEGACY / EXPERIMENTAL FILE.
 
 This file is NOT wired into the active ingestion pipeline.
 The active pipeline is:
-    Celery task → DocumentProcessor → ChunkerService → EmbeddingService
+    Celery task → DocumentProcessor → ChunkerService → EmbeddingService (Ollama)
 
 SemanticChunker from LangChain embeds every sentence during splitting,
 which means embeddings are generated TWICE if this is mixed with
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 def process_pdf(pdf_path: str):
     """
-    Experimental semantic chunking pipeline using LangChain + all-MiniLM-L6-v2.
+    Experimental semantic chunking pipeline using LangChain + bge-m3.
     NOT called by any active code path. Import cost: zero (lazy imports below).
     """
     from langchain_community.document_loaders import PyPDFLoader
@@ -27,9 +27,7 @@ def process_pdf(pdf_path: str):
     loader = PyPDFLoader(pdf_path)
     docs = loader.load()
 
-    _embedding_model = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
+    _embedding_model = HuggingFaceEmbeddings(model_name="BAAI/bge-m3")
 
     chunker = SemanticChunker(
         _embedding_model,
