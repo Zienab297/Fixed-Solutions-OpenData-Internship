@@ -12,14 +12,14 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
     # Local embeddings
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384
+    EMBEDDING_MODEL: str = "bge-m3:latest"
+    EMBEDDING_DIMENSION: int = 1024
 
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     # Local LLM (Ollama OpenAI-compatible endpoint)
-    LOCAL_LLM_MODEL: str = "llama3.2:3b"
+    LOCAL_LLM_MODEL: str = "qwen3:8b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
 
     # External LLM (Gemini)
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     API_LLM_MODEL: str = "gemini-1.5-flash"
 
     # Legacy alias kept for any code that still reads GENERATION_MODEL
-    GENERATION_MODEL: str = "llama3.2:3b"
+    GENERATION_MODEL: str = "qwen3:8b"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333

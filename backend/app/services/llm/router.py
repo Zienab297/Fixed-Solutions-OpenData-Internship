@@ -59,8 +59,10 @@ class LLMRouter:
         prompt = self._build_prompt(query=query, context=context_text, language=language)
 
         if llm_route == "local":
+            print(f"PROMPT LENGTH: {len(prompt)} chars", flush=True)
             answer = await self.local_llm.generate(prompt, model=settings.LOCAL_LLM_MODEL)
         else:
+            print(f"PROMPT LENGTH: {len(prompt)} chars", flush=True)
             answer = await self.external_llm.generate(prompt)
 
         return GenerationResult(
