@@ -3,7 +3,7 @@
 Retrieval (vector + BM25 + graph) → LLM generation → async judge evaluation.
 """
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 
@@ -13,6 +13,7 @@ from app.models.db.models import User, DomainRole
 from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.services.llm.router import LLMRouter
+from app.services.llm.local_llm import LocalLLMTimeoutError
 
 router = APIRouter(prefix="/query", tags=["Query"])
 
@@ -94,12 +95,21 @@ async def query(
 
     # Generation
     llm_router = LLMRouter()
-    generation = await llm_router.generate(
-        query=request.query,
-        context=context_chunks,
-        domain_ids=request.domain_ids,
-        domain_routes=domain_routes,
-    )
+    try:
+        generation = await llm_router.generate(
+            query=request.query,
+            context=context_chunks,
+            domain_ids=request.domain_ids,
+            domain_routes=domain_routes,
+        )
+    except LocalLLMTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "The local LLM timed out while generating an answer. "
+                "Try a narrower question, select fewer documents, or use a smaller/faster Ollama model."
+            ),
+        ) from exc
 
     # Async judge evaluation — fire and forget, never blocks response
     query_id = str(uuid4())

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from uuid import UUID
+from pathlib import Path
 
 from app.core.database import get_db
 from app.api.v1.dependencies.auth import get_current_user, require_domain_access
@@ -33,7 +34,14 @@ ALLOWED_CONTENT_TYPES = {
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "text/csv": "csv",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/csv": "csv",
+    "application/vnd.ms-excel": "csv",
+}
+
+ALLOWED_EXTENSIONS = {
+    ".pdf": "pdf",
+    ".docx": "docx",
+    ".csv": "csv",
 }
 
 
@@ -43,6 +51,13 @@ async def _resolve_user_id(current_user: CurrentUser, db: AsyncSession) -> UUID 
     )
     row = result.scalar_one_or_none()
     return row if row else None
+
+
+def _resolve_source_type(file: UploadFile) -> str | None:
+    content_type = (file.content_type or "").split(";", 1)[0].lower()
+    return ALLOWED_CONTENT_TYPES.get(content_type) or ALLOWED_EXTENSIONS.get(
+        Path(file.filename or "").suffix.lower()
+    )
 
 
 @router.post("/document", response_model=IngestJobResponse)
@@ -64,7 +79,7 @@ async def ingest_document(
     """
     require_domain_access(domain_id, "contributor", current_user, db)
 
-    source_type = ALLOWED_CONTENT_TYPES.get(file.content_type)
+    source_type = _resolve_source_type(file)
     if not source_type:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
@@ -113,7 +128,7 @@ async def ingest_document(
         job = process_document.delay(
             document_id=str(doc.id),
             domain_id=str(domain_id),
-            file_content=base64.b64encode(file_bytes).decode('utf-8'),
+            file_content=base64.b64encode(file_bytes).decode("utf-8"),
             filename=file.filename,
         )
         print("TASK QUEUED:", job.id)
@@ -147,7 +162,7 @@ async def replace_document(
     """
     require_domain_access(domain_id, "contributor", current_user, db)
 
-    source_type = ALLOWED_CONTENT_TYPES.get(file.content_type)
+    source_type = _resolve_source_type(file)
     if not source_type:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
@@ -171,7 +186,7 @@ async def replace_document(
     job = process_document.delay(
         document_id=str(new_doc.id),
         domain_id=str(domain_id),
-        file_content=file_bytes,
+        file_content=base64.b64encode(file_bytes).decode("utf-8"),
         filename=file.filename,
     )
 

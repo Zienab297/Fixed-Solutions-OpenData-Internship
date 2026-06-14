@@ -3,6 +3,10 @@ import httpx
 from app.core.config import settings
 
 
+class LocalLLMTimeoutError(RuntimeError):
+    pass
+
+
 class LocalLLMService:
     def __init__(self, base_url: str | None = None) -> None:
         self.base_url = (base_url or settings.LOCAL_LLM_BASE_URL).rstrip("/")
@@ -12,14 +16,22 @@ class LocalLLMService:
             return "Mock local response from Qwen3-8B 4-bit on Colab. Route selected: local."
 
         selected_model = model or settings.LOCAL_LLM_MODEL
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                json={
-                    "model": selected_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2,
-                },
-            )
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
+        timeout = httpx.Timeout(settings.LOCAL_LLM_TIMEOUT_SECONDS, connect=10.0)
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json={
+                        "model": selected_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.2,
+                        "max_tokens": settings.LOCAL_LLM_MAX_TOKENS,
+                    },
+                )
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+        except httpx.TimeoutException as exc:
+            raise LocalLLMTimeoutError(
+                f"Local LLM timed out after {settings.LOCAL_LLM_TIMEOUT_SECONDS:.0f}s"
+            ) from exc

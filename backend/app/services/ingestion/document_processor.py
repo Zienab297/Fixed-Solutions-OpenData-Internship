@@ -8,7 +8,7 @@ SessionLocal from database.py.  All DB operations here are synchronous.
 Flow
 ----
 1. Set document.ingest_status = 'processing'
-2. Extract raw text from the file bytes
+2. Extract text blocks from the file bytes
 3. Fetch domain chunk_size / chunk_overlap settings
 4. Chunk the text
 5. Embed each chunk in small batches (via Ollama)
@@ -19,9 +19,7 @@ Flow
 """
 from __future__ import annotations
 
-import io
 import logging
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -31,15 +29,15 @@ from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.db.models import Chunk as ChunkModel, Document, Domain
 from app.services.ingestion.chunker import ChunkerService
+from app.services.ingestion.extractors import ExtractedBlock, extract_document
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Embedding batch size: keep small so Ollama never needs >30 s per call.
-# bge-m3 on CPU: ~10-15 chunks/s → 20 chunks ≈ 1-2 s per batch.
-# Increase to 50 if running on GPU-backed Ollama.
+# Embedding batch size: keep small enough for large CSV-derived chunks on CPU.
 # ---------------------------------------------------------------------------
-_EMBED_BATCH_SIZE = 20
+_EMBED_BATCH_SIZE = 5
+_EMBED_TIMEOUT_SECONDS = 120.0
 
 
 def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
@@ -67,7 +65,7 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
             response = httpx.post(
                 url,
                 json={"model": settings.EMBEDDING_MODEL, "input": batch},
-                timeout=60.0,  # 60 s is plenty for ≤20 chunks
+                timeout=_EMBED_TIMEOUT_SECONDS,
             )
             response.raise_for_status()
             batch_embeddings = response.json()["embeddings"]
@@ -168,37 +166,6 @@ def _upsert_chunks_to_qdrant(
 
 
 # ---------------------------------------------------------------------------
-# Text extraction helpers
-# ---------------------------------------------------------------------------
-
-def _extract_text_from_pdf(file_bytes: bytes) -> list[tuple[int, str]]:
-    """
-    Returns list of (page_number, text) tuples.
-    Falls back to plain decode if pypdf is not installed.
-    """
-    try:
-        import pypdf
-        reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-        pages = []
-        for i, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            pages.append((i, text.strip()))
-        return pages
-    except ImportError:
-        logger.warning("pypdf not installed; treating PDF as plain text.")
-        return [(1, file_bytes.decode("utf-8", errors="replace"))]
-
-
-def _extract_text(filename: str, file_bytes: bytes) -> list[tuple[int, str]]:
-    """Dispatch to the right extractor based on file extension."""
-    lower = filename.lower()
-    if lower.endswith(".pdf"):
-        return _extract_text_from_pdf(file_bytes)
-    # txt / csv / other text formats
-    return [(1, file_bytes.decode("utf-8", errors="replace"))]
-
-
-# ---------------------------------------------------------------------------
 # DocumentProcessor
 # ---------------------------------------------------------------------------
 
@@ -260,9 +227,14 @@ class DocumentProcessor:
         chunk_size = domain.chunk_size if domain else 512
         chunk_overlap = domain.chunk_overlap if domain else 64
 
-        # 3. Extract text per page
-        pages = _extract_text(filename, file_content)
-        if not pages or all(not text for _, text in pages):
+        # 3. Extract text blocks
+        document = db.execute(
+            select(Document).where(Document.id == document_id)
+        ).scalar_one_or_none()
+        source_type = document.source_type if document else None
+        blocks = extract_document(filename, file_content, source_type)
+
+        if not blocks or all(not block.text.strip() for block in blocks):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
@@ -270,25 +242,39 @@ class DocumentProcessor:
             db.commit()
             return
 
-        # 4. Chunk each page
+        # 4. Chunk each extracted block
         all_chunks_data: list[dict] = []
-        for page_num, page_text in pages:
-            if not page_text.strip():
+        for block in blocks:
+            if not block.text.strip():
                 continue
+
+            if block.metadata.get("source_type") == "csv":
+                all_chunks_data.append(
+                    {
+                        "content": block.text,
+                        "chunk_index": len(all_chunks_data),
+                        "page_number": block.page_number,
+                        "section": block.section,
+                        "metadata": _merge_metadata(block, None),
+                    }
+                )
+                continue
+
             chunks = self.chunker.chunk_text(
-                page_text,
+                block.text,
                 chunk_size=chunk_size,
                 chunk_overlap=chunk_overlap,
-                page_number=page_num,
+                page_number=block.page_number,
+                section=block.section,
             )
             for c in chunks:
                 all_chunks_data.append(
                     {
                         "content": c.content,
-                        "chunk_index": c.chunk_index + len(all_chunks_data),
+                        "chunk_index": len(all_chunks_data),
                         "page_number": c.page_number,
                         "section": c.section,
-                        "metadata": c.metadata or {},
+                        "metadata": _merge_metadata(block, c.metadata),
                     }
                 )
 
@@ -362,3 +348,9 @@ class DocumentProcessor:
             )
             .values(ingest_status="failed")
         )
+
+
+def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
+    metadata = dict(block.metadata or {})
+    metadata.update(chunk_metadata or {})
+    return metadata
