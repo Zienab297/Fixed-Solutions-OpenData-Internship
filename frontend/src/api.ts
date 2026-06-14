@@ -151,7 +151,7 @@ export function askQuestion(
   });
 }
 
-export function uploadPdf(
+export function uploadDocument(
   token: string,
   file: File,
   domainId: string,

@@ -76,16 +76,25 @@ class LLMRouter:
             return "No retrieved context was provided."
 
         parts = []
-        for index, chunk in enumerate(chunks, start=1):
+        total_chars = 0
+        selected_chunks = chunks[: settings.LOCAL_LLM_CONTEXT_CHUNKS]
+
+        for index, chunk in enumerate(selected_chunks, start=1):
             page = chunk.page_number if chunk.page_number is not None else "N/A"
+            content = self._truncate(chunk.content, settings.LOCAL_LLM_CHUNK_CHARS)
             parts.append(
-                f"[Source {index}: {chunk.document_title}, Page {page}]\n{chunk.content}"
+                f"[Source {index}: {chunk.document_title}, Page {page}]\n{content}"
             )
-        return "\n\n".join(parts)
+            total_chars += len(parts[-1])
+            if total_chars >= settings.LOCAL_LLM_CONTEXT_CHARS:
+                break
+
+        context = "\n\n".join(parts)
+        return self._truncate(context, settings.LOCAL_LLM_CONTEXT_CHARS)
 
     def _build_prompt(self, query: str, context: str, language: str) -> str:
-        return f"""You are a RAG assistant.
-Answer only from the provided context.
+        return f"""You are a concise RAG assistant.
+Answer only from the provided context. Keep the answer short.
 If the context is insufficient, say that clearly.
 Respond in language code: {language}.
 Cite sources with [Source N].
@@ -97,3 +106,9 @@ Question:
 {query}
 
 Answer:"""
+
+    @staticmethod
+    def _truncate(text: str, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars].rsplit(" ", 1)[0] + "\n[truncated]"

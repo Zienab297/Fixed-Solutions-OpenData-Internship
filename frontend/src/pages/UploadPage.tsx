@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { FileText, FileUp, Loader2, UploadCloud } from "lucide-react";
 
-import { createDomain, fetchDomains, fetchIngestionJob, uploadPdf } from "../api";
+import { createDomain, fetchDomains, fetchIngestionJob, uploadDocument } from "../api";
 import DomainSelect from "../components/DomainSelect";
 import StatusBadge from "../components/StatusBadge";
 import {
@@ -15,6 +15,15 @@ import type { Domain, IngestionJob } from "../types";
 type Props = {
   token: string;
 };
+
+const acceptedDocumentTypes = [
+  ".pdf",
+  ".docx",
+  ".csv",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/csv",
+].join(",");
 
 const terminalStatuses = new Set(["completed", "failed"]);
 
@@ -111,7 +120,7 @@ export default function UploadPage({ token }: Props) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !effectiveDomainId) {
-      setError("PDF file and domain are required.");
+      setError("A supported file and domain are required.");
       return;
     }
 
@@ -121,7 +130,7 @@ export default function UploadPage({ token }: Props) {
     setRecentDomainIds(rememberDomainId(effectiveDomainId));
 
     try {
-      const result = await uploadPdf(token, file, effectiveDomainId);
+      const result = await uploadDocument(token, file, effectiveDomainId);
       saveLastIngestionJobId(result.id);
       setJob(result);
     } catch (err) {
@@ -167,8 +176,9 @@ export default function UploadPage({ token }: Props) {
       <section className="grid gap-2">
         <h1 className="text-3xl font-semibold tracking-normal">Upload</h1>
         <p className="max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-          Submit PDFs into the ingestion worker. The API returns a job ID
-          immediately while the worker extracts, chunks, embeds, and indexes.
+          Submit PDF, DOCX, or CSV files into the ingestion worker. The API
+          returns a job ID immediately while the worker extracts, chunks,
+          embeds, and indexes.
         </p>
       </section>
 
@@ -188,7 +198,7 @@ export default function UploadPage({ token }: Props) {
               <input
                 className="sr-only"
                 type="file"
-                accept="application/pdf,.pdf"
+                accept={acceptedDocumentTypes}
                 onChange={handleFileChange}
               />
               <div>
@@ -196,10 +206,10 @@ export default function UploadPage({ token }: Props) {
                   <UploadCloud size={26} />
                 </div>
                 <p className="mt-4 font-semibold">
-                  {file ? file.name : "Choose a PDF"}
+                  {file ? file.name : "Choose a document"}
                 </p>
                 <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                  {file ? `${Math.ceil(file.size / 1024)} KB selected` : "PDF only"}
+                  {file ? `${Math.ceil(file.size / 1024)} KB selected` : "PDF, DOCX, or CSV"}
                 </p>
               </div>
             </label>
@@ -219,7 +229,7 @@ export default function UploadPage({ token }: Props) {
               ) : (
                 <FileUp size={17} />
               )}
-              Upload PDF
+              Upload Document
             </button>
           </form>
         </section>
