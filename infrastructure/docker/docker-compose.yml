@@ -51,8 +51,8 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - rag-net
-    # Pull the local generation model on first start
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${GENERATION_MODEL:-llama3.2:3b} && wait"]
+    # Pull the local generation and embedding models on first start.
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${GENERATION_MODEL:-llama3.2:3b} && ollama pull ${EMBEDDING_MODEL:-bge-m3:latest} && wait"]
 
   # ── FastAPI backend ─────────────────────────────────────────────────
   api:
@@ -67,6 +67,10 @@ services:
       QDRANT_PORT: 6333
       DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
+      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
+      EMBEDDING_DIMENSION: 1024
       MOCK_LLM_RESPONSES: "false"
     ports:
       - "8000:8000"
@@ -101,6 +105,10 @@ services:
       QDRANT_PORT: 6333
       DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
+      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
+      EMBEDDING_DIMENSION: 1024
       MOCK_LLM_RESPONSES: "false"
     depends_on:
       postgres:
@@ -129,6 +137,8 @@ volumes:
   qdrant_data:
   redis_data:
   ollama_data:
+    external: true
+    name: rag-main-ollama
 
 networks:
   rag-net:

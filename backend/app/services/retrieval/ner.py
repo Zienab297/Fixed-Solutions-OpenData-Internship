@@ -4,7 +4,6 @@ Used at BOTH ingestion time and query time (§3.3).
 Shared model instance for consistency.
 """
 from typing import List, Tuple
-import spacy
 
 # Multilingual model — supports all 5 required languages
 NER_MODEL = "xx_ent_wiki_sm"  # multilingual spaCy model
@@ -14,8 +13,10 @@ NER_MODEL = "xx_ent_wiki_sm"  # multilingual spaCy model
 class NERService:
     def __init__(self):
         try:
+            import spacy
+
             self.nlp = spacy.load(NER_MODEL)
-        except OSError:
+        except (ImportError, OSError):
             # Fallback for development without model downloaded
             self.nlp = None
 

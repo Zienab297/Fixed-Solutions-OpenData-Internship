@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "qwen3:8b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
-    LOCAL_LLM_MAX_TOKENS: int = 384
-    LOCAL_LLM_CONTEXT_CHUNKS: int = 3
+    LOCAL_LLM_MAX_TOKENS: int = 512
+    LOCAL_LLM_CONTEXT_CHUNKS: int = 8
     LOCAL_LLM_CHUNK_CHARS: int = 1200
-    LOCAL_LLM_CONTEXT_CHARS: int = 4200
+    LOCAL_LLM_CONTEXT_CHARS: int = 6000
 
     # External LLM (Gemini)
     GEMINI_API_KEY: Optional[str] = None

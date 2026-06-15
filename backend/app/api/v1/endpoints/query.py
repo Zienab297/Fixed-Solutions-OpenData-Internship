@@ -12,8 +12,10 @@ from app.core.security import get_current_user
 from app.models.db.models import User, DomainRole
 from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
 from app.services.retrieval.pipeline import RetrievalPipeline
+from app.services.retrieval.table_lookup import CsvTableLookupService
 from app.services.llm.router import LLMRouter
 from app.services.llm.local_llm import LocalLLMTimeoutError
+from app.services.llm.language_detector import detect_language
 
 router = APIRouter(prefix="/query", tags=["Query"])
 
@@ -75,6 +77,34 @@ async def query(
         if row:
             domain_routes[domain_id_str] = row.llm_route if row.llm_route != "auto" else "local"
 
+    table_lookup = CsvTableLookupService()
+    table_result = await table_lookup.lookup(
+        query=request.query,
+        domain_ids=domain_uuids,
+        db=db,
+    )
+    if table_result:
+        citations = [
+            Citation(
+                chunk_id=str(c["id"]),
+                document_title=c.get("document_title", ""),
+                page_number=c.get("page_number"),
+                section=c.get("section"),
+                domain_id=str(c.get("domain_id", "")),
+                domain_name=c.get("domain_name", ""),
+                relevance_score=c.get("score", 1.0),
+            )
+            for c in table_result.chunks
+        ]
+        return QueryResponse(
+            answer=table_result.answer,
+            llm_route="local",
+            language_detected=detect_language(request.query),
+            citations=citations,
+            confidence_score=table_result.confidence_score,
+            signals_used=table_result.signals_used or ["table"],
+        )
+
     # Retrieval — pipeline receives db so BM25 + Graph can query Postgres
     pipeline = RetrievalPipeline(db)
     retrieval_result = await pipeline.retrieve(
@@ -82,6 +112,29 @@ async def query(
         domain_ids=domain_uuids,
         top_k=request.top_k,
     )
+
+    if not retrieval_result.chunks:
+        fallback_chunks = await table_lookup.search_context(
+            query=request.query,
+            domain_ids=domain_uuids,
+            db=db,
+            top_k=request.top_k,
+        )
+        if fallback_chunks:
+            retrieval_result.chunks = fallback_chunks
+            retrieval_result.citations = pipeline._build_citations(fallback_chunks)
+            retrieval_result.confidence_score = 0.85
+            retrieval_result.signals_used = retrieval_result.signals_used + ["csv_row_fallback"]
+        else:
+            llm_route = LLMRouter().determine_route(request.domain_ids, domain_routes)
+            return QueryResponse(
+                answer="I don't have enough information in the selected documents to answer that.",
+                llm_route=llm_route,
+                language_detected=detect_language(request.query),
+                citations=[],
+                confidence_score=0.0,
+                signals_used=retrieval_result.signals_used,
+            )
 
     # Build ContextChunks for LLMRouter
     context_chunks = [

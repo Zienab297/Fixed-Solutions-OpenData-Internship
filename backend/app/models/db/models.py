@@ -259,6 +259,35 @@ class Chunk(Base):
 
 
 # ---------------------------------------------------------------------------
+# Structured Table Rows
+# ---------------------------------------------------------------------------
+
+class TableRow(Base):
+    __tablename__ = "table_rows"
+    __table_args__ = (
+        UniqueConstraint("document_id", "row_number", name="uq_table_rows_document_row"),
+        Index("idx_table_rows_domain", "domain_id"),
+        Index("idx_table_rows_document", "document_id"),
+        Index("idx_table_rows_chunk", "chunk_id"),
+        {"schema": "rag"},
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    document_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("rag.documents.id", ondelete="CASCADE"), nullable=False
+    )
+    domain_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("rag.domains.id", ondelete="CASCADE"), nullable=False
+    )
+    chunk_id: Mapped[Optional[UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("rag.chunks.id", ondelete="SET NULL")
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
 # Audit Logs (append-only — never update rows)
 # ---------------------------------------------------------------------------
 
