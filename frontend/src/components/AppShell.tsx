@@ -4,11 +4,13 @@ import {
   LogOut,
   MessageSquareText,
   Network,
+  UserPlus,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
 import ThemeToggle from "./ThemeToggle";
+import { useAuth } from "../AuthContext";
 import type { User } from "../types";
 
 type Props = {
@@ -26,6 +28,8 @@ export default function AppShell({
   setTheme,
   onLogout,
 }: Props) {
+  const { hasRole } = useAuth();
+
   return (
     <div className="min-h-screen bg-white text-zinc-950 dark:bg-zinc-950 dark:text-white">
       <div className="flex min-h-screen">
@@ -43,6 +47,7 @@ export default function AppShell({
           </div>
 
           <nav className="mt-8 space-y-1">
+            {/* Chat — visible to all roles */}
             <NavLink
               to="/chat"
               className={({ isActive }) =>
@@ -52,15 +57,32 @@ export default function AppShell({
               <MessageSquareText size={18} />
               Chat
             </NavLink>
-            <NavLink
-              to="/upload"
-              className={({ isActive }) =>
-                `nav-link ${isActive ? "nav-link-active" : ""}`
-              }
-            >
-              <FileUp size={18} />
-              Upload
-            </NavLink>
+
+            {/* Upload — hidden from readers */}
+            {hasRole("contributor") && (
+              <NavLink
+                to="/upload"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
+              >
+                <FileUp size={18} />
+                Upload
+              </NavLink>
+            )}
+
+            {/* Create User — admin and domain_admin only */}
+            {hasRole("domain_admin") && (
+              <NavLink
+                to="/users/create"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
+              >
+                <UserPlus size={18} />
+                Create User
+              </NavLink>
+            )}
           </nav>
 
           <div className="mt-auto space-y-4">
@@ -77,7 +99,11 @@ export default function AppShell({
                 </div>
               </div>
             </div>
-            <button className="button-secondary w-full" type="button" onClick={onLogout}>
+            <button
+              className="button-secondary w-full"
+              type="button"
+              onClick={onLogout}
+            >
               <LogOut size={17} />
               Logout
             </button>
