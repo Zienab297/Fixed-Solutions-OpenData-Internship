@@ -46,6 +46,21 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
 
     for page_number, page in enumerate(reader.pages, start=1):
         text = (page.extract_text() or "").strip()
+        has_images = _page_has_images(page)
+
+        if not has_images:
+            if text:
+                blocks.append(
+                    ExtractedBlock(
+                        text=text,
+                        page_number=page_number,
+                        metadata={"source_type": "pdf"},
+                    )
+                )
+            continue
+
+        ocr_text = _ocr_page(file_bytes, page_number)
+
         if text:
             blocks.append(
                 ExtractedBlock(
@@ -55,7 +70,61 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
                 )
             )
 
+        if ocr_text:
+            blocks.append(
+                ExtractedBlock(
+                    text=ocr_text,
+                    page_number=page_number,
+                    metadata={"source_type": "pdf", "block_type": "ocr"},
+                )
+            )
+
     return blocks
+
+
+def _page_has_images(page: Any) -> bool:
+    try:
+        return len(page.images) > 0
+    except Exception:
+        return False
+
+
+def _ocr_page(file_bytes: bytes, page_number: int) -> str:
+    import fitz  # pymupdf
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    page = doc[page_number - 1]
+    pix = page.get_pixmap(dpi=200)
+    img_bytes = pix.tobytes("png")
+    doc.close()
+
+    from PIL import Image
+    import numpy as np
+
+    img_array = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+
+    ocr = _get_ocr_engine()
+    result = ocr.predict(img_array)
+
+    lines: list[str] = []
+    for res in result:
+        for item in res.get("rec_texts", []) or []:
+            if item and item.strip():
+                lines.append(item.strip())
+
+    return "\n".join(lines)
+
+
+_OCR_ENGINE = None
+
+
+def _get_ocr_engine():
+    global _OCR_ENGINE
+    if _OCR_ENGINE is None:
+        from paddleocr import PaddleOCR
+
+        _OCR_ENGINE = PaddleOCR(lang="ar", device="gpu")
+    return _OCR_ENGINE
 
 
 def extract_docx(file_bytes: bytes) -> list[ExtractedBlock]:

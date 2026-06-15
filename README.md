@@ -73,6 +73,8 @@ They include:
 - LLM routing flow
 - CI/CD flow
 
+---
+
 # Fixed-Solutions-OpenData-Internship
 
 # RAG Platform — Backend
@@ -88,9 +90,10 @@ Multi-User Multi-Domain RAG System backend built with FastAPI, Keycloak, and Pos
 3. [Environment Setup](#environment-setup)
 4. [Keycloak Setup](#keycloak-setup)
 5. [Database Setup](#database-setup)
-6. [Running the Server](#running-the-server)
-7. [API Endpoints](#api-endpoints)
-8. [Postman Testing Guide](#postman-testing-guide)
+6. [Running the Stack Locally](#running-the-stack-locally)
+7. [OCR Support](#ocr-support)
+8. [API Endpoints](#api-endpoints)
+9. [Postman Testing Guide](#postman-testing-guide)
 
 ---
 
@@ -126,9 +129,15 @@ backend/
 │   │   │   └── auth.py                # Auth dependency re-exports
 │   │   └── endpoints/
 │   │       ├── auth.py                # /auth routes
+│   │       ├── ingest.py              # /ingest routes (upload, replace, web crawl)
 │   │       └── domains.py             # /domains routes
 │   └── services/
-│       └── domain_service.py          # Domain business logic
+│       ├── domain_service.py          # Domain business logic
+│       └── ingestion/
+│           ├── extractors.py          # Text + OCR extraction (PDF, DOCX, CSV)
+│           ├── document_processor.py  # Celery-driven chunk/embed/store pipeline
+│           ├── chunker.py             # LangChain text splitter wrapper
+│           └── embedder.py            # Ollama embedding client
 ├── .env                               # Secret config (never commit)
 ├── .env.example                       # Safe template for teammates
 ├── requirements.txt
@@ -148,17 +157,31 @@ cd backend
 **2. Create and activate a conda environment:**
 
 ```bash
-conda create -n rag python=3.11
-conda activate rag
+conda create -n paddleocr_env python=3.11
+conda activate paddleocr_env
 ```
 
-**3. Install dependencies:**
+**3. Install PaddlePaddle first (required before other dependencies):**
+
+GPU machine:
+```bash
+pip install paddlepaddle-gpu>=3.2.1
+```
+
+CPU machine:
+```bash
+pip install paddlepaddle>=3.2.1
+```
+
+> ⚠️ PaddlePaddle must be installed **before** `pip install -r requirements.txt`. Installing it after can cause version conflicts with PaddleOCR.
+
+**4. Install remaining dependencies:**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-**4. Create your `.env` file** by copying the example:
+**5. Create your `.env` file** by copying the example:
 
 ```bash
 cp .env.example .env
@@ -172,6 +195,11 @@ KEYCLOAK_URL=http://localhost:8080
 KEYCLOAK_REALM=rag-realm
 KEYCLOAK_CLIENT_ID=rag-backend
 KEYCLOAK_CLIENT_SECRET=your-secret-from-keycloak
+OLLAMA_BASE_URL=http://localhost:11434
+EMBEDDING_MODEL=bge-m3:latest
+EMBEDDING_DIMENSION=1024
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
 ```
 
 ---
@@ -281,15 +309,120 @@ Create a database called `ragdb` in your local PostgreSQL and update `DATABASE_U
 
 ---
 
-## Running the Server
+## Running the Stack Locally
+
+Each command runs in a separate terminal. Make sure you are in the correct folder before running.
+
+**Terminal 1 — Docker services**
+
+From `infrastructure/docker/`:
 
 ```bash
-uvicorn app.main:app --reload
+docker compose -f docker-compose.dev.yml up
 ```
 
-Server runs at http://localhost:8000
+**Terminal 2 — FastAPI backend**
 
-OpenAPI docs available at http://localhost:8000/docs
+From `backend/`:
+
+```bash
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Swagger UI available at http://localhost:8000/docs
+
+**Terminal 3 — Celery worker**
+
+From `backend/`:
+
+```bash
+celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo
+```
+
+> `--pool=solo` is required on Windows.
+
+**Terminal 4 — Ollama**
+
+```bash
+ollama serve
+```
+
+Pull models if not already downloaded:
+
+```bash
+ollama pull bge-m3:latest
+ollama pull llama3.2:3b
+```
+
+**Terminal 5 — Frontend**
+
+From `frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Frontend available at http://localhost:5173
+
+---
+
+## OCR Support
+
+The ingestion pipeline includes automatic OCR for scanned or image-heavy PDF pages using **PaddleOCR**.
+
+### How it works
+
+When a PDF is uploaded for ingestion, each page is processed as follows:
+
+1. **Text extraction** — `pypdf` extracts any embedded text from the page.
+2. **Image detection** — if the page contains embedded images, it is flagged for OCR.
+3. **OCR** — `pymupdf` renders the page to a PNG at 200 DPI. PaddleOCR then reads the image and returns the recognized text lines.
+4. **Both blocks are stored** — if a page has both embedded text and image content, two separate blocks are created: one with `source_type: pdf` and one with `source_type: pdf, block_type: ocr`. Both blocks go through the same chunking and embedding pipeline.
+
+Pages with no images skip OCR entirely, keeping ingestion fast for standard text PDFs.
+
+### OCR engine details
+
+| Setting | Value |
+|---|---|
+| Library | PaddleOCR >= 3.4.0 |
+| Language | Arabic (`lang="ar"`) |
+| Device | GPU (`device="gpu"`) — falls back to CPU if GPU is unavailable |
+| Render DPI | 200 |
+| Engine lifecycle | Singleton — loaded once per Celery worker process and reused |
+
+### Installing PaddlePaddle
+
+PaddlePaddle must be installed **before** `pip install -r requirements.txt`.
+
+GPU machine:
+```bash
+pip install paddlepaddle-gpu>=3.2.1
+pip install -r requirements.txt
+```
+
+CPU machine:
+```bash
+pip install paddlepaddle>=3.2.1
+pip install -r requirements.txt
+```
+
+> If you install PaddlePaddle after the other dependencies, you may hit version conflicts with PaddleOCR. The safest approach is always to install it first in a fresh environment.
+
+### Switching OCR language
+
+The engine is initialized in `backend/app/services/ingestion/extractors.py` inside `_get_ocr_engine()`. To change the language, update the `lang` parameter:
+
+```python
+_OCR_ENGINE = PaddleOCR(lang="ar", device="gpu")
+```
+
+Supported language codes: `ar` (Arabic), `en` (English), `fr` (French), and many others — see the [PaddleOCR documentation](https://paddlepaddle.github.io/PaddleOCR/latest/en/ppocr/blog/multi_languages.html) for the full list.
+
+### Disabling GPU
+
+If you are on a CPU-only machine, change `device="gpu"` to `device="cpu"` in `_get_ocr_engine()`. OCR will be significantly slower but fully functional.
 
 ---
 
@@ -313,6 +446,32 @@ OpenAPI docs available at http://localhost:8000/docs
 | PATCH | `/api/v1/domains/{id}/archive` | Admin | Archive or unarchive a domain |
 | POST | `/api/v1/domains/{id}/members` | Admin | Add a user to a domain with a role |
 | GET | `/api/v1/domains/{id}/members` | Any role | List members of a domain |
+
+### Ingestion
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/v1/ingest/document` | Contributor | Upload a PDF, DOCX, or CSV for ingestion |
+| POST | `/api/v1/ingest/replace` | Contributor | Replace an existing document with a new version |
+| POST | `/api/v1/ingest/web` | Contributor | Queue a web crawl for a domain |
+| GET | `/api/v1/ingest/status/{job_id}` | Any role | Check the status of an ingestion job |
+
+#### Supported file types
+
+| Extension | MIME type |
+|---|---|
+| `.pdf` | `application/pdf` |
+| `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
+| `.csv` | `text/csv` |
+
+#### Ingestion responses
+
+| Status | Meaning |
+|---|---|
+| `200 IngestJobResponse` | Document queued successfully |
+| `409 FileChangedResponse` | Same filename exists but content changed — confirm replace via `/ingest/replace` |
+| `409 duplicate_document` | Exact same file already ingested — nothing to do |
+| `400` | Unsupported file type |
 
 ---
 
@@ -423,7 +582,41 @@ Expected response:
 
 ---
 
-### Step 5 — Test Role Enforcement
+### Step 5 — Test Ingestion
+
+**Upload a document:**
+
+- Method: `POST`
+- URL: `http://localhost:8000/api/v1/ingest/document`
+- Authorization: Bearer Token → `{{access_token}}`
+- Body: `form-data`
+
+| Key | Type | Value |
+|-----|------|-------|
+| `domain_id` | Text | your-domain-uuid |
+| `file` | File | select a PDF, DOCX, or CSV |
+
+Expected response:
+```json
+{
+    "job_id": "celery-task-uuid",
+    "document_id": "document-uuid",
+    "status": "pending",
+    "message": "Document queued for processing."
+}
+```
+
+**Check ingestion status:**
+
+- Method: `GET`
+- URL: `http://localhost:8000/api/v1/ingest/status/paste-job-id-here`
+- Authorization: Bearer Token → `{{access_token}}`
+
+Possible `status` values: `PENDING`, `STARTED`, `SUCCESS`, `FAILURE`, `RETRY`
+
+---
+
+### Step 6 — Test Role Enforcement
 
 1. Go back to the get-token request
 2. Change `username` to `testreader@test.com` and `password` to `Test1234!`
@@ -442,62 +635,5 @@ Expected response:
 | `403 Forbidden` | User role not sufficient for this endpoint | Use admin token or check role assignment in Keycloak |
 | `422 Unprocessable Entity` | Request body is wrong format | Make sure Body is set to raw → JSON |
 | `Could not validate credentials` | Token expired | Re-run the get-token request to refresh |
-
-
-
-
- ## Running the Stack Locally
-
-Each command runs in a separate terminal. Make sure you are in the correct folder before running.
-
-**Terminal 1 — Docker services**
-
-From `infrastructure/docker/`:
-
-```bash
-docker compose -f docker-compose.dev.yml up
-```
-
-**Terminal 2 — FastAPI backend**
-
-From `backend/`:
-
-```bash
-python -m uvicorn app.main:app --reload --port 8000
-```
-
-Swagger UI available at http://localhost:8000/docs
-
-**Terminal 3 — Celery worker**
-
-From `backend/`:
-
-```bash
-celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo
-```
-
-> `--pool=solo` is required on Windows.
-
-**Terminal 4 — Ollama**
-
-```bash
-ollama serve
-```
-
-Pull models if not already downloaded:
-
-```bash
-ollama pull bge-m3:latest
-ollama pull llama3.2:3b
-```
-
-**Terminal 5 — Frontend**
-
-From `frontend/`:
-
-```bash
-npm install
-npm run dev
-```
-
-Frontend available at http://localhost:5173
+| `paddleocr not found` | PaddlePaddle installed after requirements | Recreate the conda env, install PaddlePaddle first, then `pip install -r requirements.txt` |
+| `OCR produces empty output` | PDF page has no detectable image content | Normal — pages without images skip OCR automatically |
