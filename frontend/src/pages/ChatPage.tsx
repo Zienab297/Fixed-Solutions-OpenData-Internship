@@ -4,6 +4,7 @@ import { ArrowUp, Bot, Loader2, UserRound } from "lucide-react";
 import { askQuestion, createDomain, fetchDomains } from "../api";
 import DomainSelect from "../components/DomainSelect";
 import { readRecentDomainIds, rememberDomainId } from "../storage";
+import { useAuth } from "../AuthContext";
 import type { Domain } from "../types";
 
 type Message = {
@@ -14,11 +15,8 @@ type Message = {
   language?: string;
 };
 
-type Props = {
-  token: string;
-};
-
-export default function ChatPage({ token }: Props) {
+export default function ChatPage() {
+  const { token, hasRole } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [recentDomainIds, setRecentDomainIds] = useState<string[]>(() =>
@@ -35,10 +33,7 @@ export default function ChatPage({ token }: Props) {
 
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) {
-      return;
-    }
-
+    if (!textarea) return;
     textarea.style.height = "0px";
     const nextHeight = Math.min(textarea.scrollHeight, 220);
     textarea.style.height = `${nextHeight}px`;
@@ -46,23 +41,19 @@ export default function ChatPage({ token }: Props) {
   }, [question]);
 
   useEffect(() => {
+    if (!token) return;
     let ignore = false;
     setIsLoadingDomains(true);
     fetchDomains(token)
       .then((items) => {
-        if (!ignore) {
-          setDomains(items);
-        }
+        if (!ignore) setDomains(items);
       })
       .catch((err) => {
-        if (!ignore) {
+        if (!ignore)
           setError(err instanceof Error ? err.message : "Could not load domains");
-        }
       })
       .finally(() => {
-        if (!ignore) {
-          setIsLoadingDomains(false);
-        }
+        if (!ignore) setIsLoadingDomains(false);
       });
     return () => {
       ignore = true;
@@ -71,9 +62,7 @@ export default function ChatPage({ token }: Props) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!question.trim()) {
-      return;
-    }
+    if (!question.trim() || !token) return;
 
     const currentQuestion = question.trim();
     setQuestion("");
@@ -104,11 +93,15 @@ export default function ChatPage({ token }: Props) {
   }
 
   async function handleCreateDomain(name: string) {
+    if (!token) return;
     const domain = await createDomain(token, name);
     setDomains((current) => [domain, ...current]);
     setSelectedDomainId(domain.id);
     setRecentDomainIds(rememberDomainId(domain.id));
   }
+
+  // Only admins can create domains from the chat page
+  const canCreateDomain = hasRole("admin");
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6">
@@ -127,7 +120,7 @@ export default function ChatPage({ token }: Props) {
           selectedDomainId={selectedDomainId}
           loading={isLoadingDomains}
           onSelectDomain={setSelectedDomainId}
-          onCreateDomain={handleCreateDomain}
+          onCreateDomain={canCreateDomain ? handleCreateDomain : undefined}
         />
       </section>
 
@@ -198,7 +191,11 @@ export default function ChatPage({ token }: Props) {
               type="submit"
               title="Send message"
             >
-              {isSubmitting ? <Loader2 className="animate-spin" size={17} /> : <ArrowUp size={17} />}
+              {isSubmitting ? (
+                <Loader2 className="animate-spin" size={17} />
+              ) : (
+                <ArrowUp size={17} />
+              )}
             </button>
           </div>
         </form>

@@ -15,6 +15,14 @@ export type LoginResponse = {
   user: User;
 };
 
+export type Membership = {
+  id: string;
+  user_id: string;
+  domain_id: string;
+  role: Role;
+  granted_at: string;
+};
+
 export type Domain = {
   id: string;
   name: string;
@@ -26,6 +34,7 @@ export type Domain = {
   chunk_overlap: number;
   supported_languages: string[];
   created_at: string;
+  owner_id?: string | null;  // ← add this
 };
 
 export type Citation = {
