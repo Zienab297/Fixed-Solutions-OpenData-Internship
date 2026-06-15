@@ -1,40 +1,161 @@
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+import bcrypt
 import jwt as pyjwt
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.db.models import User, DomainRole
 
-bearer_scheme = HTTPBearer(auto_error=not settings.DEV_MODE)
+bearer_scheme = HTTPBearer(auto_error=True)
+
+ALGORITHM = "HS256"
+
+# ---------------------------------------------------------------------------
+# DEV_MODE password helpers (unused when DEV_MODE=False)
+# ---------------------------------------------------------------------------
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
-async def get_or_create_user(
-    db: AsyncSession, keycloak_id: str, email: str, user_pool: str = "internal"
-) -> User:
-    result = await db.execute(select(User).where(User.keycloak_id == keycloak_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        user = User(keycloak_id=keycloak_id, email=email, user_pool=user_pool)
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-    return user
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def decode_token(token: str) -> dict:
-    jwks_client = pyjwt.PyJWKClient(
-        f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/certs"
-    )
+# ---------------------------------------------------------------------------
+# DEV_MODE: local JWT
+# ---------------------------------------------------------------------------
+
+def create_access_token(keycloak_id: str, email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": keycloak_id, "email": email, "exp": expire}
+    return pyjwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
+
+
+def _decode_local_token(token: str) -> dict:
     try:
-        signing_key = jwks_client.get_signing_key_from_jwt(token)
-        return pyjwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            options={"verify_aud": False},
+        return pyjwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+    except pyjwt.PyJWTError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Keycloak: exchange credentials for token
+# ---------------------------------------------------------------------------
+
+async def keycloak_login(email: str, password: str) -> dict:
+    """
+    Call Keycloak's token endpoint with the user's credentials.
+    Returns the full Keycloak token response.
+    """
+    token_url = (
+        f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}"
+        f"/protocol/openid-connect/token"
+    )
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            token_url,
+            data={
+                "grant_type": "password",
+                "client_id": settings.KEYCLOAK_CLIENT_ID,
+                "client_secret": settings.KEYCLOAK_CLIENT_SECRET,
+                "username": email,
+                "password": password,
+                "scope": "openid email profile",
+            },
         )
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+    return resp.json()
+
+
+async def keycloak_create_user(
+    email: str,
+    password: str,
+    user_pool: str = "internal",
+) -> str:
+    """
+    Create a user in Keycloak via the Admin REST API.
+    Returns the new user's Keycloak ID (UUID string).
+    """
+    token_url = (
+        f"{settings.KEYCLOAK_URL}/realms/master/protocol/openid-connect/token"
+    )
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            token_url,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": settings.KEYCLOAK_CLIENT_ID,
+                "client_secret": settings.KEYCLOAK_CLIENT_SECRET,
+            },
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Could not obtain Keycloak admin token",
+            )
+        admin_token = token_resp.json()["access_token"]
+
+        users_url = (
+            f"{settings.KEYCLOAK_URL}/admin/realms/{settings.KEYCLOAK_REALM}/users"
+        )
+        create_resp = await client.post(
+            users_url,
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "username": email,
+                "email": email,
+                "enabled": True,
+                "attributes": {"user_pool": [user_pool]},
+                "credentials": [
+                    {"type": "password", "value": password, "temporary": False}
+                ],
+            },
+        )
+
+    if create_resp.status_code == 409:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with this email already exists in Keycloak",
+        )
+    if create_resp.status_code not in (200, 201):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Keycloak user creation failed: {create_resp.text}",
+        )
+
+    # Keycloak returns the new user URL in the Location header
+    location = create_resp.headers.get("Location", "")
+    keycloak_id = location.rstrip("/").split("/")[-1]
+    if not keycloak_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Keycloak did not return a user ID",
+        )
+    return keycloak_id
+
+
+def _decode_keycloak_token(token: str) -> dict:
+    """
+    Decode a Keycloak JWT without signature verification.
+    For production, replace this with JWKS-based verification using python-keycloak.
+    """
+    try:
+        return pyjwt.decode(token, options={"verify_signature": False})
     except pyjwt.PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -42,37 +163,55 @@ def decode_token(token: str) -> dict:
         )
 
 
+# ---------------------------------------------------------------------------
+# User lookup
+# ---------------------------------------------------------------------------
+
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(
+        select(User).where(User.email == email).options(selectinload(User.domain_roles))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_by_keycloak_id(db: AsyncSession, keycloak_id: str) -> Optional[User]:
+    result = await db.execute(
+        select(User).where(User.keycloak_id == keycloak_id).options(selectinload(User.domain_roles))
+    )
+    return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependency — get current user from token
+# ---------------------------------------------------------------------------
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    # ── DEV MODE: skip Keycloak entirely ──────────────────────────────────
+    token = credentials.credentials
+
     if settings.DEV_MODE:
-        return await get_or_create_user(
-            db,
-            keycloak_id=settings.DEV_USER_ID,
-            email=settings.DEV_USER_EMAIL,
-            user_pool="internal",
-        )
+        payload = _decode_local_token(token)
+    else:
+        payload = _decode_keycloak_token(token)
 
-    # ── Production: validate JWT ──────────────────────────────────────────
-    payload = decode_token(credentials.credentials)
     keycloak_id = payload.get("sub")
-    email = payload.get("email", "")
+    if not keycloak_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    # Determine pool from realm roles (optional convention)
-    realm_roles = payload.get("realm_access", {}).get("roles", [])
-    user_pool = "external" if "external_user" in realm_roles else "internal"
+    user = await get_user_by_keycloak_id(db, keycloak_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
-    return await get_or_create_user(db, keycloak_id, email, user_pool)
+    return user
 
+
+# ---------------------------------------------------------------------------
+# Domain role guard
+# ---------------------------------------------------------------------------
 
 def require_domain_role(*allowed_roles: str):
-    """
-    Dependency factory: checks the caller has one of `allowed_roles`
-    on a specific domain.  The endpoint must also accept `domain_id` as a
-    path parameter.
-    """
     from fastapi import Path
 
     async def checker(

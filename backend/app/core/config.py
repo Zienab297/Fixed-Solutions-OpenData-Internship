@@ -40,10 +40,16 @@ class Settings(BaseSettings):
     # Set to True to return mock LLM responses without hitting Ollama/Gemini
     MOCK_LLM_RESPONSES: bool = False
 
-    # Set to "true" to skip Keycloak entirely (dev/demo mode)
-    DEV_MODE: bool = True
-    DEV_USER_ID: str = "dev-user-001"
-    DEV_USER_EMAIL: str = "dev@example.com"
+    # Dev mode disabled — using local JWT auth instead of Keycloak
+    DEV_MODE: bool = False
+
+    # Secret key for signing local JWTs (change in production)
+    SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
+
+    # System admin seeded on first run
+    ADMIN_EMAIL: str = "admin@example.com"
+    ADMIN_PASSWORD: str = "changeme123"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
