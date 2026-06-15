@@ -4,14 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.endpoints import ingest, query, auth
 from app.api.v1.endpoints.domains import router as domains_router
+from app.core.database import AsyncSessionLocal
+from app.utils.seed import seed_admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: nothing heavy needed — DB schema is created by init.sql
+    # Startup: seed system admin if not already present
+    async with AsyncSessionLocal() as db:
+        await seed_admin(db)
+        await db.commit()
     yield
-    # Shutdown
-    pass
 
 
 app = FastAPI(title="RAG Platform", version="0.1.0", lifespan=lifespan)

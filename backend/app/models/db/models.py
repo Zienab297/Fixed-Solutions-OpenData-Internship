@@ -35,18 +35,16 @@ from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"schema": "rag"}
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid4
     )
     keycloak_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    user_pool: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False,
-        # DB-level constraint mirrors init.sql CHECK
-    )
+    user_pool: Mapped[str] = mapped_column(String(50), nullable=False)
+    # DEV_MODE only — not used when Keycloak is active. Column must exist in DB:
+    #   ALTER TABLE rag.users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -57,7 +55,6 @@ class User(Base):
         {"schema": "rag"},
     )
 
-    # relationships
     # relationships
     domain_roles: Mapped[List["DomainRole"]] = relationship(
         back_populates="user", foreign_keys="[DomainRole.user_id]"
@@ -177,7 +174,6 @@ class Document(Base):
             "ingest_status IN ('pending', 'processing', 'completed', 'failed')",
             name="chk_document_ingest_status",
         ),
-        # Duplicate-detection: same content_hash + same domain = duplicate
         UniqueConstraint("content_hash", "domain_id", name="uq_document_hash_domain"),
         Index("idx_documents_domain", "domain_id"),
         {"schema": "rag"},
@@ -194,11 +190,7 @@ class Document(Base):
     ingest_status: Mapped[str] = mapped_column(String(50), server_default="pending")
     ocr_used: Mapped[bool] = mapped_column(Boolean, server_default="false")
     language: Mapped[Optional[str]] = mapped_column(String(10))
-
-    # SHA-256 hex digest of raw file bytes — used to detect duplicate uploads
-    # documents are 
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True)
-
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}")
     ingested_by: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
@@ -248,7 +240,6 @@ class Chunk(Base):
     section: Mapped[Optional[str]] = mapped_column(String(255))
     embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
     embedding_version: Mapped[int] = mapped_column(Integer, server_default="1")
-    # Qdrant point IDs / AGE node IDs stored here for cross-DB linking
     graph_node_ids: Mapped[Optional[List[UUID]]] = mapped_column(ARRAY(PGUUID(as_uuid=True)))
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
