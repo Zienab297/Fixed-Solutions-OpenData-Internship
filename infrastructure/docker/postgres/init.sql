@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS rag.users (
     keycloak_id VARCHAR(255) UNIQUE NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     user_pool VARCHAR(50) NOT NULL CHECK (user_pool IN ('internal', 'external')),
+    password_hash VARCHAR(255),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
