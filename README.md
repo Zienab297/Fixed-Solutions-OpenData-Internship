@@ -501,3 +501,76 @@ npm run dev
 ```
 
 Frontend available at http://localhost:5173
+
+
+## RBAC-Filtering-Across-Retrieval Branch — Auth & User Management
+ 
+This section documents the changes made in the `RBAC-filtering-across-retrieval` branch, which wired up real authentication and role-based user creation across the backend and frontend.
+ 
+### What Changed
+ 
+#### Backend
+ 
+**`app/core/security.py`**
+ 
+- Removed `passlib` dependency in favor of `bcrypt` directly, fixing a version compatibility issue on Windows.
+- Added `keycloak_login` — forwards user credentials to Keycloak's token endpoint and returns the JWT. Used in production mode (`DEV_MODE=False`).
+- Added `keycloak_create_user` — calls the Keycloak Admin REST API to register a new user, returning the Keycloak-assigned UUID. Used in production mode.
+- `get_current_user` now branches on `DEV_MODE`: in dev it decodes a locally signed JWT; in production it decodes a Keycloak JWT.
+- `hash_password` and `verify_password` are kept but only used when `DEV_MODE=True`.
+**`app/core/config.py`**
+ 
+- `DEV_MODE` flag added. When `True`, auth bypasses Keycloak and uses local JWTs and local password hashing. Set to `False` for production.
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD` added for seeding the system admin on first run.
+**`app/api/v1/endpoints/auth.py`**
+ 
+- `POST /api/v1/auth/token`: in `DEV_MODE` authenticates against the local DB; in production forwards to Keycloak.
+- `POST /api/v1/auth/users`: rewrote user creation with tiered permissions:
+  - **System admin** (`ADMIN_EMAIL`): can create users in any domain with any role including `domain_admin`.
+  - **Domain admin**: can create users only in domains they manage, with roles limited to `reader` or `contributor`.
+  - **Everyone else**: 403.
+  - In `DEV_MODE`, stores a `password_hash` locally. In production, registers the user in Keycloak instead.
+- `GET /api/v1/auth/me`: unchanged.
+**`app/models/db/models.py`**
+ 
+- Added `password_hash` as a nullable column to the `User` model, used only in `DEV_MODE`. The column must exist in the DB:
+```sql
+ALTER TABLE rag.users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+```
+ 
+**`app/utils/seed.py`**
+ 
+- Seeds the system admin user on startup if they don't exist yet. Creates the user with a hashed password derived from `ADMIN_PASSWORD` in config.
+**`app/main.py`**
+ 
+- Wired `seed_admin` into the FastAPI lifespan so the system admin is created automatically on first startup.
+---
+ 
+#### Frontend
+ 
+**`src/pages/CreateUserPage.tsx`**
+ 
+- Added a **Password** field — required when creating a new user.
+- System admins now see all three role options: `reader`, `contributor`, and `domain_admin`. Domain admins only see `reader` and `contributor`.
+- Domain filtering now relies entirely on what the backend returns from `/domains/my`, so domain admins automatically see only their own domains without any client-side filtering.
+**`src/api.ts`**
+ 
+- `CreateUserPayload` updated to include `password: string` and `role: "reader" | "contributor" | "domain_admin"`.
+---
+ 
+### Auth Flow Summary
+ 
+| Mode | Login | User Creation |
+|------|-------|---------------|
+| `DEV_MODE=True` | Local DB password check, local JWT issued | User stored in DB with `password_hash` |
+| `DEV_MODE=False` | Credentials forwarded to Keycloak, Keycloak JWT returned | User registered in Keycloak via Admin API, then stored locally |
+ 
+### Role Hierarchy
+ 
+| Role | Can create users | Domains accessible | Assignable roles |
+|------|-----------------|-------------------|-----------------|
+| `admin` (system) | Yes, any domain | All | `reader`, `contributor`, `domain_admin` |
+| `domain_admin` | Yes, own domains only | Their domains | `reader`, `contributor` |
+| `contributor` | No | Assigned domains | — |
+| `reader` | No | Assigned domains | — |
+ 
