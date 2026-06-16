@@ -120,7 +120,6 @@ python-jose==3.3.0
 python-multipart==0.0.9
 python-slugify==8.0.4
 pytz==2026.2
-pywin32==312
 PyYAML==6.0.2
 qdrant-client==1.9.1
 redis==5.0.4
