@@ -10,11 +10,8 @@ import {
   rememberDomainId,
   saveLastIngestionJobId,
 } from "../storage";
+import { useAuth } from "../AuthContext";
 import type { Domain, IngestionJob } from "../types";
-
-type Props = {
-  token: string;
-};
 
 const acceptedDocumentTypes = [
   ".pdf",
@@ -27,7 +24,8 @@ const acceptedDocumentTypes = [
 
 const terminalStatuses = new Set(["completed", "failed"]);
 
-export default function UploadPage({ token }: Props) {
+export default function UploadPage() {
+  const { token, user, hasRole } = useAuth();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [recentDomainIds, setRecentDomainIds] = useState<string[]>(() =>
     readRecentDomainIds(),
@@ -41,26 +39,31 @@ export default function UploadPage({ token }: Props) {
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [error, setError] = useState("");
 
+  // admin/contributor see all domains; domain_admin only sees their own; reader sees none
+  const writableDomains = useMemo(() => {
+    if (hasRole("admin") || hasRole("contributor")) return domains;
+    if (hasRole("domain_admin") && user) {
+      return domains.filter((d) => d.owner_id === user.id);
+    }
+    return [];
+  }, [domains, user, hasRole]);
+
   const effectiveDomainId = useMemo(() => selectedDomainId, [selectedDomainId]);
 
   useEffect(() => {
+    if (!token) return;
     let ignore = false;
     setIsLoadingDomains(true);
     fetchDomains(token)
       .then((items) => {
-        if (!ignore) {
-          setDomains(items);
-        }
+        if (!ignore) setDomains(items);
       })
       .catch((err) => {
-        if (!ignore) {
+        if (!ignore)
           setError(err instanceof Error ? err.message : "Could not load domains");
-        }
       })
       .finally(() => {
-        if (!ignore) {
-          setIsLoadingDomains(false);
-        }
+        if (!ignore) setIsLoadingDomains(false);
       });
     return () => {
       ignore = true;
@@ -68,10 +71,9 @@ export default function UploadPage({ token }: Props) {
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
     const lastJobId = readLastIngestionJobId();
-    if (!lastJobId) {
-      return;
-    }
+    if (!lastJobId) return;
 
     fetchIngestionJob(token, lastJobId)
       .then((nextJob) => {
@@ -86,9 +88,7 @@ export default function UploadPage({ token }: Props) {
   }, [token]);
 
   useEffect(() => {
-    if (!job || terminalStatuses.has(job.status)) {
-      return;
-    }
+    if (!token || !job || terminalStatuses.has(job.status)) return;
 
     const interval = window.setInterval(() => {
       fetchIngestionJob(token, job.id)
@@ -119,7 +119,7 @@ export default function UploadPage({ token }: Props) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file || !effectiveDomainId) {
+    if (!file || !effectiveDomainId || !token) {
       setError("A supported file and domain are required.");
       return;
     }
@@ -143,9 +143,7 @@ export default function UploadPage({ token }: Props) {
   async function handleLoadJob(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedJobId = jobLookupId.trim();
-    if (!trimmedJobId) {
-      return;
-    }
+    if (!trimmedJobId || !token) return;
 
     setIsLoadingJob(true);
     setError("");
@@ -165,11 +163,15 @@ export default function UploadPage({ token }: Props) {
   }
 
   async function handleCreateDomain(name: string) {
+    if (!token) return;
     const domain = await createDomain(token, name);
     setDomains((current) => [domain, ...current]);
     setSelectedDomainId(domain.id);
     setRecentDomainIds(rememberDomainId(domain.id));
   }
+
+  // Only admins can create new domains
+  const canCreateDomain = hasRole("admin");
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6">
@@ -186,12 +188,12 @@ export default function UploadPage({ token }: Props) {
         <section className="surface rounded-lg p-5">
           <form className="space-y-5" onSubmit={handleSubmit}>
             <DomainSelect
-              domains={domains}
+              domains={writableDomains}
               recentDomainIds={recentDomainIds}
               selectedDomainId={selectedDomainId}
               loading={isLoadingDomains}
               onSelectDomain={setSelectedDomainId}
-              onCreateDomain={handleCreateDomain}
+              onCreateDomain={canCreateDomain ? handleCreateDomain : undefined}
             />
 
             <label className="grid min-h-64 cursor-pointer place-items-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center transition hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800">
@@ -265,7 +267,9 @@ export default function UploadPage({ token }: Props) {
                   <p className="text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
                     Domain
                   </p>
-                  <p className="mt-1 break-all">{job.domain_id ?? "Not available from status endpoint"}</p>
+                  <p className="mt-1 break-all">
+                    {job.domain_id ?? "Not available from status endpoint"}
+                  </p>
                 </div>
                 {job.error_message ? (
                   <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">

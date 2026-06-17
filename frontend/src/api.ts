@@ -1,10 +1,18 @@
-import type { Domain, IngestionJob, IngestionStatus, LoginResponse, QueryResponse, User } from "./types";
+import type { Domain, IngestionJob, IngestionStatus, LoginResponse, Membership, QueryResponse, User } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
-const DEV_AUTH_TOKEN = "dev-mode";
 
 export const tokenStorageKey = "rag_auth_token";
 export const userStorageKey = "rag_auth_user";
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 type RequestOptions = RequestInit & {
   token?: string | null;
@@ -12,7 +20,7 @@ type RequestOptions = RequestInit & {
 
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (!(options.body instanceof FormData)) {
+  if (!(options.body instanceof FormData) && !(options.body instanceof URLSearchParams)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -48,7 +56,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
     } catch {
       // Keep the HTTP status message when the response is not JSON.
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
@@ -105,17 +113,41 @@ function toIngestionJob(
   };
 }
 
-export async function login(_email: string, _password: string): Promise<LoginResponse> {
-  const user = await apiRequest<User>("/auth/me");
+// Submits credentials to the real auth endpoint and returns the token + user.
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const body = new URLSearchParams();
+  body.append("username", email);
+  body.append("password", password);
+
+  const response = await apiRequest<LoginResponse>("/auth/token", {
+    method: "POST",
+    body,
+  });
+
   return {
-    access_token: DEV_AUTH_TOKEN,
-    token_type: "bearer",
-    user: normalizeUser(user),
+    ...response,
+    user: normalizeUser(response.user),
   };
 }
 
 export function fetchCurrentUser(token: string): Promise<User> {
   return apiRequest<User>("/auth/me", { token }).then(normalizeUser);
+}
+
+export type CreateUserPayload = {
+  email: string;
+  password: string;
+  role: "reader" | "contributor" | "domain_admin";
+  domain_id: string; // always required — roles are domain-scoped
+};
+
+// admin/domain_admin can create users scoped to a domain.
+export function createUser(token: string, payload: CreateUserPayload): Promise<User> {
+  return apiRequest<User>("/auth/users", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  }).then(normalizeUser);
 }
 
 export function createDomain(token: string, name: string): Promise<Domain> {
@@ -130,8 +162,14 @@ export function createDomain(token: string, name: string): Promise<Domain> {
   });
 }
 
-export function fetchDomains(token: string): Promise<Domain[]> {
-  return apiRequest<Domain[]>("/domains/", { token });
+export async function fetchDomains(token: string): Promise<Domain[]> {
+  const [allDomains, memberships] = await Promise.all([
+    apiRequest<Domain[]>("/domains/", { token }),
+    apiRequest<Membership[]>("/domains/my", { token }),
+  ]);
+
+  const authorizedIds = new Set(memberships.map((m) => m.domain_id));
+  return allDomains.filter((d) => authorizedIds.has(d.id));
 }
 
 export function askQuestion(
