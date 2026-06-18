@@ -234,12 +234,13 @@ class DocumentProcessor:
         ).scalar_one_or_none()
         source_type = document.source_type if document else None
         blocks = extract_document(filename, file_content, source_type)
+        ocr_used = _blocks_used_ocr(blocks)
 
         if not blocks or all(not block.text.strip() for block in blocks):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
-            self._set_status(db, document_id, "completed")
+            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
             db.commit()
             return
 
@@ -280,7 +281,7 @@ class DocumentProcessor:
                 )
 
         if not all_chunks_data:
-            self._set_status(db, document_id, "completed")
+            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
             db.commit()
             return
 
@@ -330,7 +331,7 @@ class DocumentProcessor:
         )
 
         # 9. Mark completed
-        self._set_status(db, document_id, "completed")
+        self._set_status(db, document_id, "completed", ocr_used=ocr_used)
         db.commit()
         logger.info(
             "document_id=%s: ingested %d chunks from %s",
@@ -340,11 +341,21 @@ class DocumentProcessor:
         )
 
     @staticmethod
-    def _set_status(db: Session, document_id: UUID, status: str) -> None:
+    def _set_status(
+        db: Session,
+        document_id: UUID,
+        status: str,
+        *,
+        ocr_used: bool | None = None,
+    ) -> None:
+        values = {"ingest_status": status}
+        if ocr_used is not None:
+            values["ocr_used"] = ocr_used
+
         db.execute(
             update(Document)
             .where(Document.id == document_id)
-            .values(ingest_status=status)
+            .values(**values)
         )
 
     @staticmethod
@@ -364,6 +375,14 @@ def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
     metadata = dict(block.metadata or {})
     metadata.update(chunk_metadata or {})
     return metadata
+
+
+def _blocks_used_ocr(blocks: list[ExtractedBlock]) -> bool:
+    return any(
+        block.metadata.get("ocr_used") is True
+        or block.metadata.get("block_type") == "ocr"
+        for block in blocks
+    )
 
 
 def _replace_structured_table_rows(

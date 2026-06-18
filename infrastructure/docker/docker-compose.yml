@@ -71,6 +71,8 @@ services:
       LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
       EMBEDDING_DIMENSION: 1024
+      OCR_LANG: ${OCR_LANG:-ar}
+      OCR_DEVICE: ${OCR_DEVICE:-gpu}
       MOCK_LLM_RESPONSES: "false"
     ports:
       - "8000:8000"
@@ -96,11 +98,14 @@ services:
     build:
       context: ../..
       dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.workers.celery_app worker --loglevel=info -P solo --concurrency=1 -Q ingestion,evaluation,extraction,celery
+    gpus: all
     environment:
       DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
       CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
       CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       DEV_MODE: "true"
@@ -109,6 +114,8 @@ services:
       LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
       EMBEDDING_DIMENSION: 1024
+      OCR_LANG: ${OCR_LANG:-ar}
+      OCR_DEVICE: ${OCR_DEVICE:-gpu}
       MOCK_LLM_RESPONSES: "false"
     depends_on:
       postgres:

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.db.models import User, DomainRole
@@ -36,6 +37,9 @@ async def _check_domain_access(
 
     ROLE_LEVELS = {"reader": 0, "contributor": 1, "domain_admin": 2}
     required_level = ROLE_LEVELS.get(required_role, 0)
+
+    if current_user.email == settings.ADMIN_EMAIL:
+        return
 
     result = await db.execute(
         select(DomainRole).where(

@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,13 +63,14 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
             continue
 
         ocr_text = _ocr_page(file_bytes, page_number)
+        ocr_metadata = {"source_type": "pdf", "ocr_used": True}
 
         if text:
             blocks.append(
                 ExtractedBlock(
                     text=text,
                     page_number=page_number,
-                    metadata={"source_type": "pdf"},
+                    metadata=ocr_metadata,
                 )
             )
 
@@ -75,7 +79,15 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
                 ExtractedBlock(
                     text=ocr_text,
                     page_number=page_number,
-                    metadata={"source_type": "pdf", "block_type": "ocr"},
+                    metadata={**ocr_metadata, "block_type": "ocr"},
+                )
+            )
+        elif not text:
+            blocks.append(
+                ExtractedBlock(
+                    text="",
+                    page_number=page_number,
+                    metadata=ocr_metadata,
                 )
             )
 
@@ -104,7 +116,19 @@ def _ocr_page(file_bytes: bytes, page_number: int) -> str:
     img_array = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 
     ocr = _get_ocr_engine()
-    result = ocr.predict(img_array)
+    try:
+        result = ocr.predict(img_array)
+    except Exception as exc:
+        from app.core.config import settings
+
+        if settings.OCR_DEVICE == "cpu":
+            raise
+        logger.warning(
+            "OCR prediction failed on device=%s (%s); retrying on CPU",
+            settings.OCR_DEVICE,
+            exc,
+        )
+        result = _get_ocr_engine("cpu").predict(img_array)
 
     lines: list[str] = []
     for res in result:
@@ -116,14 +140,31 @@ def _ocr_page(file_bytes: bytes, page_number: int) -> str:
 
 
 _OCR_ENGINE = None
+_OCR_ENGINE_DEVICE = None
 
 
-def _get_ocr_engine():
-    global _OCR_ENGINE
-    if _OCR_ENGINE is None:
+def _get_ocr_engine(device: str | None = None):
+    global _OCR_ENGINE, _OCR_ENGINE_DEVICE
+
+    from app.core.config import settings
+
+    requested_device = device or settings.OCR_DEVICE
+    if _OCR_ENGINE is None or _OCR_ENGINE_DEVICE != requested_device:
         from paddleocr import PaddleOCR
 
-        _OCR_ENGINE = PaddleOCR(lang="ar", device="gpu")
+        try:
+            _OCR_ENGINE = PaddleOCR(lang=settings.OCR_LANG, device=requested_device)
+            _OCR_ENGINE_DEVICE = requested_device
+        except Exception as exc:
+            if requested_device == "cpu":
+                raise
+            logger.warning(
+                "OCR engine failed to start on device=%s (%s); falling back to CPU",
+                requested_device,
+                exc,
+            )
+            _OCR_ENGINE = PaddleOCR(lang=settings.OCR_LANG, device="cpu")
+            _OCR_ENGINE_DEVICE = "cpu"
     return _OCR_ENGINE
 
 

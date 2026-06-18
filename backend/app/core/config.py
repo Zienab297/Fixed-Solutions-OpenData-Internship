@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
+    # OCR for scanned / image-heavy PDFs
+    OCR_LANG: str = "ar"
+    OCR_DEVICE: str = "gpu"
+
     # Local LLM (Ollama OpenAI-compatible endpoint)
     LOCAL_LLM_MODEL: str = "qwen3:8b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
