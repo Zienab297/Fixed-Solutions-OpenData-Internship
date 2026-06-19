@@ -37,5 +37,53 @@ services:
       - "8080:8080"
     command: start-dev
 
+  # ------------------------------------------------------------------
+  # Apache AGE — dedicated graph DB, separate from the relational
+  # ragdb Postgres above. Kept on its own port (5455) and its own
+  # volume so it can be wiped/reseeded independently during ontology
+  # iteration without touching relational app data.
+  # ------------------------------------------------------------------
+  age:
+    image: apache/age:release_PG16_1.5.0
+    environment:
+      POSTGRES_DB: agedb
+      POSTGRES_USER: ageuser
+      POSTGRES_PASSWORD: agepassword
+    ports:
+      - "5455:5432"
+    volumes:
+      - age_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ageuser -d agedb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------------------------------------------------
+  # GLiNER multilingual NER microservice — standalone FastAPI service,
+  # shared by both ingestion-time and query-time NER calls. Built from
+  # local source (services/ner/), not a public image.
+  # ------------------------------------------------------------------
+  ner:
+    build:
+      context: ../../services/ner
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      GLINER_MODEL_NAME: urchade/gliner_multi-v2.1
+      GLINER_LANGUAGES: en,ar
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - ner_model_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   postgres_data:
+  age_data:
+  ner_model_cache:
