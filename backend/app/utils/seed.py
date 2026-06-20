@@ -17,7 +17,7 @@ async def seed_admin(db: AsyncSession) -> None:
         return
 
     admin = User(
-        keycloak_id="system-admin-001",
+        keycloak_id="system-admin-009",
         email=settings.ADMIN_EMAIL,
         user_pool="internal",
         password_hash=hash_password(settings.ADMIN_PASSWORD),

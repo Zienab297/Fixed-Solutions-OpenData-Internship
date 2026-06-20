@@ -1,83 +1,147 @@
 """
-Document chunking service.
-Configurable chunk size and overlap per domain (§2.4).
+Unified ingestion pipeline supporting PDF, CSV, and DOCX/DOC.
+Strictly rejects any other file formats. Import cost: zero (lazy imports).
+
+Tables are extracted separately and chunked row-by-row to preserve
+structure (column headers stay attached to each row's values) instead
+of letting RecursiveCharacterTextSplitter break them mid-row.
 """
-from typing import List
-from dataclasses import dataclass
+import os
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-@dataclass
-class Chunk:
-    content: str
-    chunk_index: int
-    page_number: int = None
-    section: str = None
-    metadata: dict = None
+def process_file(file_path: str) -> list[Document]:
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == ".pdf":
+        from langchain_community.document_loaders import PyMuPDFLoader
+        loader = PyMuPDFLoader(file_path)
+        docs = loader.load()
+        table_docs = _extract_pdf_tables(file_path)
+
+    elif ext == ".csv":
+        from langchain_community.document_loaders import CSVLoader
+        loader = CSVLoader(file_path)
+        docs = loader.load()
+        return docs
+
+    elif ext in [".docx", ".doc"]:
+        from langchain_community.document_loaders import Docx2txtLoader
+        loader = Docx2txtLoader(file_path)
+        docs = loader.load()
+        table_docs = _extract_docx_tables(file_path)
+
+    else:
+        raise ValueError(
+            f"❌ Unsupported file format! The system is configured to process only PDF, CSV, and DOCX/DOC files. "
+            f"Rejected file: {os.path.basename(file_path)}"
+        )
+
+    chunker = RecursiveCharacterTextSplitter(
+        separators=["\n\n", "\n", " ", ""],
+        chunk_size=650,
+        chunk_overlap=120,
+    )
+    text_chunks = chunker.split_documents(docs)
+
+    return text_chunks + table_docs
 
 
-class ChunkerService:
-    def chunk_text(
-        self,
-        text: str,
-        chunk_size: int = 512,
-        chunk_overlap: int = 64,
-        page_number: int = None,
-        section: str = None,
-    ) -> List[Chunk]:
-        """
-        Split text into overlapping chunks.
-        Overlap preserves context at chunk boundaries.
-        """
-        words = text.split()
-        chunks = []
-        i = 0
-        chunk_index = 0
+def _extract_pdf_tables(file_path: str) -> list[Document]:
+    """
+    Extract tables from a PDF using camelot (lattice flavor — works best
+    for tables with visible grid lines, like the W-4 withholding tables).
+    Each table row becomes its own Document chunk so the embedding model
+    sees complete, structured rows instead of broken fragments.
+    """
+    import camelot
 
-        while i < len(words):
-            chunk_words = words[i : i + chunk_size]
-            chunk_text = " ".join(chunk_words)
+    table_docs: list[Document] = []
 
-            if chunk_text.strip():
-                chunks.append(
-                    Chunk(
-                        content=chunk_text,
-                        chunk_index=chunk_index,
-                        page_number=page_number,
-                        section=section,
-                        metadata={},
-                    )
+    try:
+        tables = camelot.read_pdf(file_path, pages="all", flavor="lattice")
+    except Exception:
+        return table_docs
+
+    for table_index, table in enumerate(tables):
+        df = table.df
+        if df.empty:
+            continue
+
+        headers = df.iloc[0].tolist()
+        page_number = table.page
+
+        for row_index, row in df.iloc[1:].iterrows():
+            row_text = " | ".join(
+                f"{headers[i]}: {value}"
+                for i, value in enumerate(row.tolist())
+                if str(value).strip()
+            )
+            if not row_text.strip():
+                continue
+
+            table_docs.append(
+                Document(
+                    page_content=row_text,
+                    metadata={
+                        "page": page_number,
+                        "type": "table",
+                        "table_index": table_index,
+                        "row_index": row_index,
+                        "source_type": "pdf",
+                    },
                 )
-                chunk_index += 1
+            )
 
-            i += chunk_size - chunk_overlap  # step forward with overlap
+    return table_docs
 
-        return chunks
 
-    def chunk_structured_data(self, rows: List[dict], context_key: str = None) -> List[Chunk]:
-        """
-        Schema-aware chunking for CSV/XLSX data (§2.2).
-        Groups rows by semantic context rather than raw count.
-        """
-        # Group by context_key if provided (e.g. department, category)
-        if context_key and rows and context_key in rows[0]:
-            from itertools import groupby
-            groups = {}
-            for row in rows:
-                key = row.get(context_key, "unknown")
-                groups.setdefault(key, []).append(row)
+def _extract_docx_tables(file_path: str) -> list[Document]:
+    """
+    Extract tables from a DOCX using python-docx. Each table row becomes
+    its own Document chunk, mirroring the PDF table handling above.
+    """
+    from docx import Document as DocxDocument
 
-            chunks = []
-            for group_key, group_rows in groups.items():
-                content = f"Group: {group_key}\n"
-                content += "\n".join(str(r) for r in group_rows)
-                chunks.append(Chunk(content=content, chunk_index=len(chunks)))
-            return chunks
+    table_docs: list[Document] = []
 
-        # Default: fixed-size row groups
-        chunk_size = 50
-        chunks = []
-        for i in range(0, len(rows), chunk_size):
-            batch = rows[i : i + chunk_size]
-            content = "\n".join(str(r) for r in batch)
-            chunks.append(Chunk(content=content, chunk_index=len(chunks)))
-        return chunks
+    try:
+        docx_file = DocxDocument(file_path)
+    except Exception:
+        return table_docs
+
+    for table_index, table in enumerate(docx_file.tables):
+        rows = [
+            [cell.text.strip() for cell in row.cells]
+            for row in table.rows
+        ]
+        rows = [row for row in rows if any(cell for cell in row)]
+        if len(rows) < 2:
+            continue
+
+        headers = rows[0]
+
+        for row_index, row in enumerate(rows[1:], start=1):
+            row_text = " | ".join(
+                f"{headers[i]}: {value}"
+                for i, value in enumerate(row)
+                if value.strip()
+            )
+            if not row_text.strip():
+                continue
+
+            table_docs.append(
+                Document(
+                    page_content=row_text,
+                    metadata={
+                        "section": f"table_{table_index}",
+                        "type": "table",
+                        "table_index": table_index,
+                        "row_index": row_index,
+                        "source_type": "docx",
+                    },
+                )
+            )
+
+    return table_docs

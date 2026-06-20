@@ -8,14 +8,12 @@ SessionLocal from database.py.  All DB operations here are synchronous.
 Flow
 ----
 1. Set document.ingest_status = 'processing'
-2. Extract text blocks from the file bytes
-3. Fetch domain chunk_size / chunk_overlap settings
-4. Chunk the text
-5. Embed each chunk in small batches (via Ollama)
-6. INSERT rows into rag.chunks
-7. Upsert embeddings into Qdrant
-8. Set document.ingest_status = 'completed'
-9. On any error → set status = 'failed', re-raise so Celery can retry
+2. Extract + chunk via process_file() (PDF/CSV/DOCX → LangChain Documents)
+3. Embed each chunk in small batches (via Ollama)
+4. INSERT rows into rag.chunks
+5. Upsert embeddings into Qdrant
+6. Set document.ingest_status = 'completed'
+7. On any error → set status = 'failed', re-raise so Celery can retry
 """
 from __future__ import annotations
 
@@ -28,8 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.db.models import Chunk as ChunkModel, Document, Domain
-from app.services.ingestion.chunker import ChunkerService
-from app.services.ingestion.extractors import ExtractedBlock, extract_document
+from app.services.ingestion.chunker import process_file  # ← CHANGED: new unified loader+chunker
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Embedding batch size: keep small enough for large CSV-derived chunks on CPU.
 # ---------------------------------------------------------------------------
 _EMBED_BATCH_SIZE = 5
-_EMBED_TIMEOUT_SECONDS = 120.0
+_EMBED_TIMEOUT_SECONDS = 500.0
 
 
 def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
@@ -177,7 +174,7 @@ class DocumentProcessor:
     """
 
     def __init__(self):
-        self.chunker = ChunkerService()
+        pass  # ChunkerService no longer needed — process_file() does it all
 
     def process(
         self,
@@ -220,21 +217,46 @@ class DocumentProcessor:
         self._set_status(db, document_id, "processing")
         db.commit()
 
-        # 2. Fetch domain settings (chunk_size / chunk_overlap)
+        # 2. Fetch domain (kept for compatibility — process_file() has its own
+        #    fixed chunk_size/chunk_overlap, domain-level overrides are unused now)
         domain = db.execute(
             select(Domain).where(Domain.id == domain_id)
-        ).scalar_one_or_none()
-        chunk_size = domain.chunk_size if domain else 512
-        chunk_overlap = domain.chunk_overlap if domain else 64
+        ).scalar_one_or_none()  # noqa: F841 — kept for future per-domain config
 
-        # 3. Extract text blocks
-        document = db.execute(
-            select(Document).where(Document.id == document_id)
-        ).scalar_one_or_none()
-        source_type = document.source_type if document else None
-        blocks = extract_document(filename, file_content, source_type)
+        # 3. Extract + chunk via process_file() — needs a real path on disk
+        #    process_file() reads from disk (PyMuPDFLoader/CSVLoader/Docx2txtLoader
+        #    all require a file path, not raw bytes), so write file_content to a
+        #    temp file first.
+        import os
+        import tempfile
 
-        if not blocks or all(not block.text.strip() for block in blocks):
+        suffix = "_" + filename  # preserve original extension for routing
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        try:
+            lc_documents = process_file(tmp_path)
+        except ValueError as exc:
+            # Unsupported file format (process_file() only allows PDF/CSV/DOCX)
+            logger.warning(
+                "document_id=%s: rejected unsupported format for %s — %s",
+                document_id, filename, exc,
+            )
+            self._set_status(db, document_id, "failed")
+            db.commit()
+            return
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except PermissionError:
+                logger.warning(
+                    "Could not delete temp file %s (still locked by another process). "
+                    "It will be cleaned up later by the OS temp folder cleanup.",
+            tmp_path,
+        )
+
+        if not lc_documents or all(not d.page_content.strip() for d in lc_documents):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
@@ -242,41 +264,28 @@ class DocumentProcessor:
             db.commit()
             return
 
-        # 4. Chunk each extracted block
+        # 4. Build chunk data from LangChain Document objects
+        #    page_number / section are pulled from metadata when present —
+        #    process_file()'s loaders populate metadata differently per type
+        #    (e.g. PyMuPDFLoader sets "page", CSVLoader sets "row").
         all_chunks_data: list[dict] = []
-        for block in blocks:
-            if not block.text.strip():
+        for lc_doc in lc_documents:
+            if not lc_doc.page_content.strip():
                 continue
 
-            if block.metadata.get("source_type") == "csv":
-                all_chunks_data.append(
-                    {
-                        "content": block.text,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": block.page_number,
-                        "section": block.section,
-                        "metadata": _merge_metadata(block, None),
-                    }
-                )
-                continue
+            metadata = lc_doc.metadata or {}
+            page_number = metadata.get("page", metadata.get("page_number"))
+            section = metadata.get("section", metadata.get("row"))
 
-            chunks = self.chunker.chunk_text(
-                block.text,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                page_number=block.page_number,
-                section=block.section,
+            all_chunks_data.append(
+                {
+                    "content": lc_doc.page_content,
+                    "chunk_index": len(all_chunks_data),
+                    "page_number": page_number,
+                    "section": str(section) if section is not None else None,
+                    "metadata": metadata,
+                }
             )
-            for c in chunks:
-                all_chunks_data.append(
-                    {
-                        "content": c.content,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": c.page_number,
-                        "section": c.section,
-                        "metadata": _merge_metadata(block, c.metadata),
-                    }
-                )
 
         if not all_chunks_data:
             self._set_status(db, document_id, "completed")
@@ -295,7 +304,7 @@ class DocumentProcessor:
 
         # 6. Build and INSERT Chunk ORM rows
         chunk_rows = []
-        for i, chunk_data in enumerate(all_chunks_data):
+        for chunk_data in all_chunks_data:
             row = ChunkModel(
                 document_id=document_id,
                 domain_id=domain_id,
@@ -350,7 +359,9 @@ class DocumentProcessor:
         )
 
 
-def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
-    metadata = dict(block.metadata or {})
+def _merge_metadata(block, chunk_metadata: dict | None) -> dict:
+    """Kept for backward compatibility with any other callers."""
+    metadata = dict(getattr(block, "metadata", None) or {})
     metadata.update(chunk_metadata or {})
     return metadata
+    
