@@ -1,0 +1,220 @@
+{
+  "ontology": "Medical Domain Ontology — Minimal Core",
+  "inspired_by": "Human Disease Ontology (DOID)",
+  "schema_version": "v1.0",
+  "node_labels": [
+    {
+      "label": "Disease",
+      "description": "A disease/disorder entity",
+      "key_properties": ["name", "doid_code", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Symptom",
+      "description": "Observable sign/symptom",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "BodySite",
+      "description": "Anatomical location",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Drug",
+      "description": "Medication/treatment substance",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Procedure",
+      "description": "Medical/surgical procedure",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "RiskFactor",
+      "description": "Factor increasing disease risk",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Pathogen",
+      "description": "Causative organism (virus/bacteria)",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Specialty",
+      "description": "Medical specialty/field",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Patient",
+      "description": "Patient/person receiving care",
+      "key_properties": ["patient_id", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Doctor",
+      "description": "Physician/healthcare provider",
+      "key_properties": ["name", "specialty", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Hospital",
+      "description": "Healthcare facility",
+      "key_properties": ["name", "location", "domain", "schema_version", "source_chunk_ids"]
+    }
+  ],
+  "relationship_types": [
+    {
+      "relationship": "IS_A",
+      "from": "Disease",
+      "to": "Disease",
+      "meaning": "Disease subclass hierarchy"
+    },
+    {
+      "relationship": "LOCATED_IN",
+      "from": "Disease",
+      "to": "BodySite",
+      "meaning": "Disease affects this body site"
+    },
+    {
+      "relationship": "HAS_SYMPTOM",
+      "from": "Disease",
+      "to": "Symptom",
+      "meaning": "Disease presents with symptom"
+    },
+    {
+      "relationship": "TREATED_BY",
+      "from": "Disease",
+      "to": "Drug",
+      "meaning": "Drug treats disease"
+    },
+    {
+      "relationship": "TREATED_BY_PROCEDURE",
+      "from": "Disease",
+      "to": "Procedure",
+      "meaning": "Procedure treats disease"
+    },
+    {
+      "relationship": "CAUSED_BY",
+      "from": "Disease",
+      "to": "Pathogen",
+      "meaning": "Pathogen causes disease"
+    },
+    {
+      "relationship": "RISK_FACTOR_FOR",
+      "from": "RiskFactor",
+      "to": "Disease",
+      "meaning": "Risk factor increases disease likelihood"
+    },
+    {
+      "relationship": "MANAGED_BY",
+      "from": "Disease",
+      "to": "Specialty",
+      "meaning": "Specialty manages this disease"
+    },
+    {
+      "relationship": "CONTRAINDICATED_FOR",
+      "from": "Drug",
+      "to": "Disease",
+      "meaning": "Drug should not be used for disease"
+    },
+    {
+      "relationship": "DIAGNOSED_WITH",
+      "from": "Patient",
+      "to": "Disease",
+      "meaning": "Patient diagnosed with disease"
+    },
+    {
+      "relationship": "PRESCRIBED",
+      "from": "Doctor",
+      "to": "Drug",
+      "meaning": "Doctor prescribed drug"
+    },
+    {
+      "relationship": "TREATED_AT",
+      "from": "Patient",
+      "to": "Hospital",
+      "meaning": "Patient treated at hospital"
+    },
+    {
+      "relationship": "WORKS_AT",
+      "from": "Doctor",
+      "to": "Hospital",
+      "meaning": "Doctor affiliated with hospital"
+    },
+    {
+      "relationship": "PERFORMED_BY",
+      "from": "Procedure",
+      "to": "Doctor",
+      "meaning": "Procedure performed by doctor"
+    },
+    {
+      "relationship": "UNDERWENT",
+      "from": "Patient",
+      "to": "Procedure",
+      "meaning": "Patient underwent procedure"
+    },
+    {
+      "relationship": "SPECIALIZES_IN",
+      "from": "Doctor",
+      "to": "Specialty",
+      "meaning": "Doctor specialty"
+    }
+  ],
+  "disease_hierarchy": {
+    "description": "Top-level, DOID-style — IS_A chains",
+    "root": "Disease",
+    "children": [
+      {
+        "name": "InfectiousDisease",
+        "children": [
+          { "name": "BacterialInfection" },
+          { "name": "ViralInfection" }
+        ]
+      },
+      {
+        "name": "CardiovascularDisease",
+        "children": [
+          { "name": "Hypertension" },
+          { "name": "CoronaryArteryDisease" }
+        ]
+      },
+      {
+        "name": "EndocrineDisease",
+        "children": [
+          { "name": "DiabetesMellitusType1" },
+          { "name": "DiabetesMellitusType2" }
+        ]
+      },
+      {
+        "name": "RespiratoryDisease",
+        "children": [
+          { "name": "Asthma" },
+          { "name": "Pneumonia" }
+        ]
+      },
+      {
+        "name": "NeurologicalDisease",
+        "children": [
+          { "name": "Migraine" },
+          { "name": "Epilepsy" }
+        ]
+      },
+      {
+        "name": "MusculoskeletalDisease",
+        "children": [
+          { "name": "Osteoarthritis" }
+        ]
+      },
+      {
+        "name": "NeoplasticDisease",
+        "children": [
+          { "name": "BenignNeoplasm" },
+          { "name": "MalignantNeoplasm" }
+        ]
+      }
+    ]
+  },
+  "ner_extraction_notes": [
+    "Treat the 8 node labels above as the closed entity-type set the NER model outputs.",
+    "Treat the 9 relationship types as the closed predicate set the triple-extraction LLM must map to — reject/flag any triple whose predicate doesn't match one of these.",
+    "domain property is always \"medical\" for these nodes — used by Phase 5 RBAC filtering.",
+    "schema_version lets Phase 6 detect which nodes need re-extraction when you update this file."
+  ]
+}

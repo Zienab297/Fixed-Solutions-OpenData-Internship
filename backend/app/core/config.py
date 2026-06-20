@@ -8,6 +8,20 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = "rag-api"
     KEYCLOAK_CLIENT_SECRET: str = "secret"
 
+    # NER microservice
+    NER_SERVICE_URL: str = "http://ner:8001"
+    # Apache AGE (graph database)
+    AGE_HOST: str = "localhost"
+    AGE_PORT: int = 5455
+    AGE_DB: str = "agedb"
+    AGE_USER: str = "ageuser"
+    AGE_PASSWORD: str = "agepassword"
+    AGE_GRAPH_NAME: str = "rag_ontology"
+
+    # Async connection pool sizing
+    AGE_POOL_MIN_SIZE: int = 2
+    AGE_POOL_MAX_SIZE: int = 10
+
     CELERY_BROKER_URL: str = "redis://:changeme@localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
