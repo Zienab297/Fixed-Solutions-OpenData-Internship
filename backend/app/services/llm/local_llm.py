@@ -1,3 +1,5 @@
+import re
+
 import httpx
 
 from app.core.config import settings
@@ -27,10 +29,15 @@ class LocalLLMService:
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.2,
                         "max_tokens": settings.LOCAL_LLM_MAX_TOKENS,
+                        "chat_template_kwargs": {"enable_thinking": False},  # ← ADD: disable qwen3 thinking mode
                     },
                 )
                 response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
+                content = response.json()["choices"][0]["message"]["content"]
+
+                # qwen3 may still emit reasoning inside <think>...</think> — strip it out
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()  # ← ADD
+                return content
         except httpx.TimeoutException as exc:
             raise LocalLLMTimeoutError(
                 f"Local LLM timed out after {settings.LOCAL_LLM_TIMEOUT_SECONDS:.0f}s"

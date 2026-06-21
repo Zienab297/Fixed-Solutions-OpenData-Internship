@@ -39,7 +39,7 @@ def process_file(file_path: str) -> list[Document]:
         )
 
     chunker = RecursiveCharacterTextSplitter(
-        separators=["\n\n", "\n", " ", ""],
+        separators=["\n\n", "\n", " ", "."],
         chunk_size=650,
         chunk_overlap=120,
     )

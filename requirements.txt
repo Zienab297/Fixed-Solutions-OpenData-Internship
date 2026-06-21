@@ -221,3 +221,5 @@ sentencepiece==0.2.1
 setuptools==82.0.1
 shapely==2.1.2
 wheel==0.46.3
+camelot-py[cv]
+docx2txt
