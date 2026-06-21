@@ -103,28 +103,9 @@ def _ocr_page(file_bytes: bytes, page_number: int) -> str:
 
     img_array = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 
-    ocr = _get_ocr_engine()
-    result = ocr.predict(img_array)
+    from .ocr_engines import run_ocr
 
-    lines: list[str] = []
-    for res in result:
-        for item in res.get("rec_texts", []) or []:
-            if item and item.strip():
-                lines.append(item.strip())
-
-    return "\n".join(lines)
-
-
-_OCR_ENGINE = None
-
-
-def _get_ocr_engine():
-    global _OCR_ENGINE
-    if _OCR_ENGINE is None:
-        from paddleocr import PaddleOCR
-
-        _OCR_ENGINE = PaddleOCR(lang="ar", device="gpu")
-    return _OCR_ENGINE
+    return run_ocr(img_array)
 
 
 def extract_docx(file_bytes: bytes) -> list[ExtractedBlock]:
@@ -142,24 +123,34 @@ def extract_docx(file_bytes: bytes) -> list[ExtractedBlock]:
         if isinstance(child, CT_P):
             paragraph = Paragraph(child, document)
             text = paragraph.text.strip()
-            if not text:
-                continue
 
-            style_name = paragraph.style.name if paragraph.style else ""
-            is_heading = style_name.lower().startswith("heading")
-            if is_heading:
-                current_section = text
+            if text:
+                style_name = paragraph.style.name if paragraph.style else ""
+                is_heading = style_name.lower().startswith("heading")
+                if is_heading:
+                    current_section = text
 
-            blocks.append(
-                ExtractedBlock(
-                    text=text,
-                    section=current_section,
-                    metadata={
-                        "source_type": "docx",
-                        "style": style_name,
-                    },
+                blocks.append(
+                    ExtractedBlock(
+                        text=text,
+                        section=current_section,
+                        metadata={
+                            "source_type": "docx",
+                            "style": style_name,
+                        },
+                    )
                 )
-            )
+
+            for image_bytes in _extract_paragraph_images(paragraph, document):
+                ocr_text = _ocr_image_bytes(image_bytes)
+                if ocr_text:
+                    blocks.append(
+                        ExtractedBlock(
+                            text=ocr_text,
+                            section=current_section,
+                            metadata={"source_type": "docx", "block_type": "ocr"},
+                        )
+                    )
 
         elif isinstance(child, CT_Tbl):
             table = Table(child, document)
@@ -222,6 +213,43 @@ def _source_type_from_filename(filename: str) -> str:
         ".docx": "docx",
         ".csv": "csv",
     }.get(suffix, "")
+
+
+def _extract_paragraph_images(paragraph: Any, document: Any) -> list[bytes]:
+    """Pull the raw bytes of any images embedded in this paragraph's runs."""
+    namespaces = {
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    }
+
+    image_bytes: list[bytes] = []
+    blips = paragraph._p.findall(".//a:blip", namespaces)
+
+    for blip in blips:
+        embed_id = blip.get(f"{{{namespaces['r']}}}embed")
+        if not embed_id:
+            continue
+        try:
+            part = document.part.related_parts[embed_id]
+        except KeyError:
+            continue
+        image_bytes.append(part.blob)
+
+    return image_bytes
+
+
+def _ocr_image_bytes(image_bytes: bytes) -> str:
+    from PIL import Image
+    import numpy as np
+
+    from .ocr_engines import run_ocr
+
+    try:
+        img_array = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
+    except Exception:
+        return ""
+
+    return run_ocr(img_array)
 
 
 def _format_docx_table(table: Any) -> str:
