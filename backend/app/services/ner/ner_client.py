@@ -120,6 +120,26 @@ def get_domain_schema_version(domain: str) -> str:
     return _load_ontology(domain).schema_version
 
 
+def get_known_domains() -> frozenset[str]:
+    """
+    Public helper — the authoritative set of domain keys this service
+    actually has an ontology for. Used by callers (extractor.py) that
+    resolve a domain key from somewhere else (e.g. a Domain table's
+    display name) and need to validate that guess against reality
+    before using it, instead of finding out three calls later via a
+    FileNotFoundError with no context about which document triggered it.
+
+    NOTE: this and triple_extractor._load_relationship_types() both read
+    the same _ONTOLOGY_FILES mapping independently. They're kept in sync
+    today because both are generated from the same dict literal, but if
+    a third ontology-consuming module appears, consider extracting
+    _ONTOLOGY_FILES and its loader into a shared ontology_loader.py that
+    both this module and triple_extractor.py import from, rather than
+    adding a third independent copy.
+    """
+    return frozenset(_ONTOLOGY_FILES.keys())
+
+
 def clear_ontology_cache() -> None:
     """Call after an ontology file is edited (e.g. Phase 8 admin update) so
     the next extract_entities() call picks up the new label set instead of

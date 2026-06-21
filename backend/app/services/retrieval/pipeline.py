@@ -2,13 +2,32 @@
 Hybrid Retrieval Pipeline
 Orchestrates: Query-time NER → Router → Vector + BM25 + Graph → RRF Fusion
 
-Key improvements over original:
-- Signals run in parallel via asyncio.gather().
-- Language detected once here and threaded to BM25 + NER — no duplicate detection.
-- Signal weights computed per-query (keyword vs. semantic).
-- Graph boost applied to RRF output for chunks confirmed by graph traversal.
-- Confidence uses original vector cosine scores, not RRF artifacts.
-- Each signal failure is isolated — pipeline degrades gracefully.
+PATCHED (this revision) — wires in the rebuilt ner.py / graph_search.py:
+
+- ner.py and graph_search.py now operate on resolved ontology domain
+  NAMES ("medical"/"legal"), not raw domain_id UUIDs — see
+  domain_resolver.py. This pipeline now resolves domain_ids once, up
+  front, via domain_resolver.get_accessible_domain_names(), and reuses
+  the resolved name list for both the NER call and the graph search
+  call, rather than resolving twice or (as before) never resolving at
+  all and passing UUIDs straight into Cypher.
+- RBAC: domain access is enforced HERE, before NER/graph even run —
+  get_accessible_domain_names() intersects the caller's requested
+  domain_ids against the domains the user actually holds a role in
+  (domain_service.get_user_domains), per the rule: combine domains if
+  the user can access more than one of the requested ones, restrict to
+  whichever subset they do have otherwise. Vector/BM25 still receive
+  the original `domain_ids` UUIDs unchanged — they already enforce
+  RBAC at their own layer (Qdrant/Postgres filtering) and are untouched
+  by this patch.
+- graph_search.search()'s signature changed (entities, domain_names) —
+  no more `db` param; it now goes through age_client's own pool
+  instead of the request's AsyncSession, since AGE runs in a separate
+  Postgres role/search_path context (see age_client.py). self.db is
+  still used for bm25_search, which is unaffected.
+- Everything else — parallel asyncio.gather, weighted RRF, graph
+  boost, confidence calculation — is unchanged; it was already correct
+  and didn't depend on the broken parts of ner.py/graph_search.py.
 """
 
 import asyncio
@@ -25,6 +44,7 @@ from app.services.retrieval.graph_search import GraphSearchService
 from app.services.retrieval.ner import NERService
 from app.services.retrieval.rrf import reciprocal_rank_fusion
 from app.services.retrieval.lang_detect import detect_language
+from app.services.retrieval import domain_resolver
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +79,50 @@ class RetrievalPipeline:
         self,
         query: str,
         domain_ids: List[UUID],
+        user_id: UUID,
         top_k: int = 5,
         language: Optional[str] = None,   # ISO 639-1 override (e.g. from user profile)
     ) -> RetrievalResult:
         """
         Full hybrid retrieval pipeline:
+        0. Resolve domain_ids -> RBAC-filtered ontology domain names
+           (NEW — required by both NER label selection and graph RBAC)
         1. Detect language + run NER + classify query — in parallel
         2. Compute per-query signal weights
         3. Run vector / BM25 / graph — in parallel
         4. Weighted RRF over vector + BM25
         5. Graph boost for confirmed chunks
         6. Confidence from original cosine scores
+
+        user_id: NEW required param — needed to intersect requested
+        domain_ids against the domains this user actually holds a role
+        in (§1.2: "Permissions checked server-side at query time, not
+        only in the UI"). Vector/BM25 enforce their own RBAC at their
+        respective storage layers using the raw domain_ids, same as
+        before; this resolution step is specifically what NER label
+        selection and graph traversal scoping need.
         """
+
+        # Step 0 — Resolve + RBAC-filter domain_ids to ontology domain
+        # names once, shared by both NER and graph search below.
+        domain_name_map = await domain_resolver.get_accessible_domain_names(
+            db=self.db, user_id=user_id, requested_domain_ids=domain_ids,
+        )
+        domain_names = list(domain_name_map.values())
+        if not domain_names:
+            logger.info(
+                "user_id=%s: no accessible/resolvable ontology domains among "
+                "requested domain_ids=%s — NER and graph signals will be empty "
+                "for this query; vector/BM25 still run.",
+                user_id, domain_ids,
+            )
 
         # Step 1 — Language detection + NER + query classification in parallel.
         # detect_language is sync but fast; wrap in executor to keep it non-blocking.
         loop = asyncio.get_event_loop()
         detected_lang, entities, query_type = await asyncio.gather(
             loop.run_in_executor(None, detect_language, query),
-            self.ner_service.extract_entities(query),
+            self.ner_service.extract_entities(query, domain_names=domain_names),
             self.ner_service.classify_query(query),
         )
 
@@ -105,8 +150,8 @@ class RetrievalPipeline:
             ),
             self._safe(
                 self.graph_search.search(
-                    entities=entities, domain_ids=domain_ids, db=self.db
-                ) if has_entities else _empty(),
+                    entities=entities, domain_names=domain_names,
+                ) if has_entities and domain_names else _empty(),
                 "graph",
             ),
         )
@@ -212,12 +257,12 @@ def _build_citations(chunks: List[dict]) -> List[dict]:
 def _build_graph_citations(graph_results: List[dict]) -> List[dict]:
     return [
         {
-            "node_id":        g["node_id"],
-            "entity_type":    g["entity_type"],
-            "entity_name":    g["entity_name"],
-            "traversal_path": g.get("path", []),
-            "domain_id":      g.get("domain_id"),
-            "chunk_ids":      g.get("chunk_ids", []),
+            "node_uuid":       g["node_uuid"],
+            "entity_type":     g["entity_type"],
+            "entity_name":     g["entity_name"],
+            "traversal_path":  g.get("path", []),
+            "domain_name":     g.get("domain_name"),
+            "chunk_ids":       g.get("chunk_ids", []),
         }
         for g in graph_results
     ]

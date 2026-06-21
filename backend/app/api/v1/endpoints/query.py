@@ -75,11 +75,20 @@ async def query(
         if row:
             domain_routes[domain_id_str] = row.llm_route if row.llm_route != "auto" else "local"
 
-    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres
+    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres.
+    # user_id is required so the pipeline can re-derive which of the
+    # already-RBAC-checked domain_uuids the user holds a role in, for
+    # NER label selection + graph traversal scoping (see
+    # domain_resolver.get_accessible_domain_names). The per-domain
+    # _check_domain_access loop above already guarantees every UUID in
+    # domain_uuids is one the user can read, so this is a second,
+    # independent resolution (UUID -> ontology key) rather than a
+    # second permission check.
     pipeline = RetrievalPipeline(db)
     retrieval_result = await pipeline.retrieve(
         query=request.query,
         domain_ids=domain_uuids,
+        user_id=current_user.id,
         top_k=request.top_k,
     )
 
