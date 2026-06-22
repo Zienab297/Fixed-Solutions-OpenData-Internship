@@ -219,6 +219,9 @@ def require_domain_role(*allowed_roles: str):
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        if current_user.email == settings.ADMIN_EMAIL:
+            return current_user
+
         result = await db.execute(
             select(DomainRole).where(
                 DomainRole.user_id == current_user.id,

@@ -1,4 +1,5 @@
 from typing import Literal, Optional, List
+from uuid import UUID
 from pydantic import BaseModel, Field
 
 RouteName = Literal["local", "api"]
@@ -28,10 +29,21 @@ class Citation(BaseModel):
     relevance_score: float = 0.0
 
 
+class EvaluationScores(BaseModel):
+    faithfulness: Optional[float] = None
+    relevance: Optional[float] = None
+    completeness: Optional[float] = None
+    citation_accuracy: Optional[float] = None
+    rationale: Optional[dict] = None
+    flagged: Optional[bool] = None
+
+
 class QueryResponse(BaseModel):
+    query_id: UUID
     answer: str
     llm_route: RouteName
     language_detected: str
     citations: List[Citation] = Field(default_factory=list)
     confidence_score: float = 0.0
     signals_used: List[str] = Field(default_factory=list)
+    evaluation: Optional[EvaluationScores] = None

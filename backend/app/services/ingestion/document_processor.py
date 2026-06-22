@@ -19,10 +19,11 @@ Flow
 """
 from __future__ import annotations
 
+import json
 import logging
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -233,12 +234,13 @@ class DocumentProcessor:
         ).scalar_one_or_none()
         source_type = document.source_type if document else None
         blocks = extract_document(filename, file_content, source_type)
+        ocr_used = _blocks_used_ocr(blocks)
 
         if not blocks or all(not block.text.strip() for block in blocks):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
-            self._set_status(db, document_id, "completed")
+            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
             db.commit()
             return
 
@@ -279,7 +281,7 @@ class DocumentProcessor:
                 )
 
         if not all_chunks_data:
-            self._set_status(db, document_id, "completed")
+            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
             db.commit()
             return
 
@@ -311,7 +313,16 @@ class DocumentProcessor:
         db.add_all(chunk_rows)
         db.flush()  # assign IDs before Qdrant upsert
 
-        # 7. Upsert embeddings into Qdrant
+        # 7. Persist structured CSV rows for deterministic table QA.
+        if source_type == "csv":
+            _replace_structured_table_rows(
+                db=db,
+                document_id=document_id,
+                domain_id=domain_id,
+                chunk_rows=chunk_rows,
+            )
+
+        # 8. Upsert embeddings into Qdrant
         _upsert_chunks_to_qdrant(
             domain_id=domain_id,
             chunk_rows=chunk_rows,
@@ -319,8 +330,8 @@ class DocumentProcessor:
             document_title=filename,
         )
 
-        # 8. Mark completed
-        self._set_status(db, document_id, "completed")
+        # 9. Mark completed
+        self._set_status(db, document_id, "completed", ocr_used=ocr_used)
         db.commit()
         logger.info(
             "document_id=%s: ingested %d chunks from %s",
@@ -330,11 +341,21 @@ class DocumentProcessor:
         )
 
     @staticmethod
-    def _set_status(db: Session, document_id: UUID, status: str) -> None:
+    def _set_status(
+        db: Session,
+        document_id: UUID,
+        status: str,
+        *,
+        ocr_used: bool | None = None,
+    ) -> None:
+        values = {"ingest_status": status}
+        if ocr_used is not None:
+            values["ocr_used"] = ocr_used
+
         db.execute(
             update(Document)
             .where(Document.id == document_id)
-            .values(ingest_status=status)
+            .values(**values)
         )
 
     @staticmethod
@@ -354,3 +375,92 @@ def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
     metadata = dict(block.metadata or {})
     metadata.update(chunk_metadata or {})
     return metadata
+
+
+def _blocks_used_ocr(blocks: list[ExtractedBlock]) -> bool:
+    return any(
+        block.metadata.get("ocr_used") is True
+        or block.metadata.get("block_type") == "ocr"
+        for block in blocks
+    )
+
+
+def _replace_structured_table_rows(
+    db: Session,
+    document_id: UUID,
+    domain_id: UUID,
+    chunk_rows: list[ChunkModel],
+) -> None:
+    _ensure_table_rows_schema(db)
+
+    db.execute(
+        text("DELETE FROM rag.table_rows WHERE document_id = :document_id"),
+        {"document_id": str(document_id)},
+    )
+
+    for chunk in chunk_rows:
+        rows = (chunk.metadata_ or {}).get("rows") or []
+        if not isinstance(rows, list):
+            continue
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            values = row.get("values")
+            if not isinstance(values, dict):
+                continue
+            row_number = row.get("row_number")
+            if not isinstance(row_number, int):
+                continue
+
+            db.execute(
+                text(
+                    """
+                    INSERT INTO rag.table_rows (
+                        document_id, domain_id, chunk_id, row_number, row_data
+                    )
+                    VALUES (
+                        :document_id,
+                        :domain_id,
+                        :chunk_id,
+                        :row_number,
+                        CAST(:row_data AS jsonb)
+                    )
+                    ON CONFLICT (document_id, row_number)
+                    DO UPDATE SET
+                        domain_id = EXCLUDED.domain_id,
+                        chunk_id = EXCLUDED.chunk_id,
+                        row_data = EXCLUDED.row_data
+                    """
+                ),
+                {
+                    "document_id": str(document_id),
+                    "domain_id": str(domain_id),
+                    "chunk_id": str(chunk.id),
+                    "row_number": row_number,
+                    "row_data": json.dumps({str(k): str(v) for k, v in values.items()}),
+                },
+            )
+
+
+def _ensure_table_rows_schema(db: Session) -> None:
+    db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS rag.table_rows (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                document_id UUID NOT NULL REFERENCES rag.documents(id) ON DELETE CASCADE,
+                domain_id UUID NOT NULL REFERENCES rag.domains(id) ON DELETE CASCADE,
+                chunk_id UUID REFERENCES rag.chunks(id) ON DELETE SET NULL,
+                row_number INTEGER NOT NULL,
+                row_data JSONB NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (document_id, row_number)
+            )
+            """
+        )
+    )
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_domain ON rag.table_rows(domain_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_document ON rag.table_rows(document_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_chunk ON rag.table_rows(chunk_id)"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_data_gin ON rag.table_rows USING GIN (row_data)"))

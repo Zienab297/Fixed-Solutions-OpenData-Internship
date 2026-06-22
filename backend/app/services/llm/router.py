@@ -94,10 +94,13 @@ class LLMRouter:
 
     def _build_prompt(self, query: str, context: str, language: str) -> str:
         return f"""You are a concise RAG assistant.
-Answer only from the provided context. Keep the answer short.
-If the context is insufficient, say that clearly.
+Rules:
+- Answer only from the provided context. Do not use general knowledge.
+- If the context is empty or insufficient, answer exactly: I don't have enough information in the selected documents to answer that.
+- Keep the answer short.
+- Cite only source numbers that appear in the context, such as [Source 1].
+- Never write placeholder citations like [Source N].
 Respond in language code: {language}.
-Cite sources with [Source N].
 
 Context:
 {context}

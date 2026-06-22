@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints import ingest, query, auth
+from app.api.v1.endpoints import evaluate, ingest, query, auth
 from app.api.v1.endpoints.domains import router as domains_router
 from app.core.database import AsyncSessionLocal
 from app.utils.seed import seed_admin
@@ -30,6 +30,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(domains_router, prefix="/api/v1")
 app.include_router(ingest.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
+app.include_router(evaluate.router, prefix="/api/v1")
 
 
 @app.get("/health")
