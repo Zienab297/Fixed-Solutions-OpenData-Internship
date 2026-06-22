@@ -4,11 +4,15 @@
 --
 -- What this does:
 -- 1. Enables unaccent extension (accent-insensitive matching: café → cafe)
--- 2. Creates a custom rag_unaccent TS config — the default used by content_tsv.
---    It chains unaccent → simple so it works for any language at index time.
---    At query time, lang_detect.py resolves the per-query config dynamically
---    (e.g. "arabic", "french") from Postgres's built-in stemmer configs.
---    No per-language config blocks needed here.
+-- 2. Creates a custom rag_unaccent TS config — the ONLY config used by
+--    content_tsv, both at index time and at query time. It chains
+--    unaccent → simple: strips accents, lowercases, does NOT stem.
+--    bm25_search.py must always query with this same config
+--    (plainto_tsquery('rag_unaccent', ...)) — never a language-specific
+--    built-in config (e.g. "english", "arabic"). Those apply stemming/
+--    stopword rules that 'rag_unaccent' does not, so tsquery lexemes
+--    built under a different config will not match the tsvector lexemes
+--    stored here, and BM25 will silently return near-zero results.
 -- 3. Adds a generated content_tsv column — Postgres keeps it in sync
 --    automatically on every INSERT / UPDATE.
 -- 4. Adds a GIN index on content_tsv — makes tsvector queries fast.
@@ -18,11 +22,13 @@
 -- 1. unaccent — handles accented characters across European languages
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
--- 2. Single custom config used for INDEXING.
+-- 2. Single custom config — used for BOTH indexing and querying.
 --    Chains unaccent → simple: strips accents, lowercases, no stemming.
---    Stemming happens at query time via language-specific built-in configs.
---    (If you applied different stemmers at index vs query time, tsquery
---     wouldn't match tsvector correctly.)
+--    bm25_search.py queries with this exact same config. Do not swap in
+--    a different built-in language config (e.g. 'english', 'arabic') at
+--    query time — those stem and remove stopwords differently, so their
+--    tsquery lexemes won't match the tsvector lexemes generated here,
+--    and the query will silently return almost nothing.
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -66,8 +72,10 @@ CREATE INDEX IF NOT EXISTS idx_chunks_domain_id
 -- Confirm custom config exists:
 -- SELECT cfgname FROM pg_ts_config WHERE cfgname = 'rag_unaccent';
 
--- Smoke test BM25 query (replace 'english' with detected lang at runtime):
--- SELECT id, ts_rank_cd(content_tsv, plainto_tsquery('english', 'revenue growth'), 32) AS score
+-- Smoke test BM25 query — always use 'rag_unaccent', the same config
+-- content_tsv was generated with. Never substitute a detected/runtime
+-- language here (e.g. 'english', 'arabic') — see notes above.
+-- SELECT id, ts_rank_cd(content_tsv, plainto_tsquery('rag_unaccent', 'revenue growth'), 32) AS score
 -- FROM rag.chunks
--- WHERE content_tsv @@ plainto_tsquery('english', 'revenue growth')
+-- WHERE content_tsv @@ plainto_tsquery('rag_unaccent', 'revenue growth')
 -- ORDER BY score DESC LIMIT 5;

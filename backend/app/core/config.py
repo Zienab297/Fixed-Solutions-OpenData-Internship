@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_SECRET: str = "secret"
 
     # NER microservice
-    NER_SERVICE_URL: str = "http://ner:8001"
+    NER_SERVICE_URL: str = "http://localhost:8001"
     # Apache AGE (graph database)
     AGE_HOST: str = "localhost"
     AGE_PORT: int = 5455

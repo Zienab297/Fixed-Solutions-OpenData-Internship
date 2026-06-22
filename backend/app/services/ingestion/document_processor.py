@@ -40,7 +40,7 @@ _EMBED_BATCH_SIZE = 5
 _EMBED_TIMEOUT_SECONDS = 120.0
 
 
-def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
+def _embed_texts_sync(texts: list[str]) -> tuple[list[list[float]], list[bool]]:
     """
     Call Ollama /api/embed synchronously in small batches.
 
@@ -53,11 +53,15 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
 
     Falls back to zero vectors per batch if Ollama is unreachable (dev/test
     safety) so DB writes still succeed and Qdrant can be re-indexed later.
+
+    Returns (embeddings, failed_flags) where failed_flags[i] is True if
+    embeddings[i] is a zero-vector placeholder that needs re-embedding.
     """
     import httpx
 
     url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embed"
     all_embeddings: list[list[float]] = []
+    failed_indices: list[bool] = []
 
     for batch_start in range(0, len(texts), _EMBED_BATCH_SIZE):
         batch = texts[batch_start : batch_start + _EMBED_BATCH_SIZE]
@@ -70,6 +74,7 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
             response.raise_for_status()
             batch_embeddings = response.json()["embeddings"]
             all_embeddings.extend(batch_embeddings)
+            failed_indices.extend([False] * len(batch))
             logger.debug(
                 "Embedded batch %d-%d / %d",
                 batch_start,
@@ -85,8 +90,9 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
                 exc,
             )
             all_embeddings.extend([[0.0] * settings.EMBEDDING_DIMENSION for _ in batch])
+            failed_indices.extend([True] * len(batch))
 
-    return all_embeddings
+    return all_embeddings, failed_indices
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +237,15 @@ class DocumentProcessor:
         document = db.execute(
             select(Document).where(Document.id == document_id)
         ).scalar_one_or_none()
-        source_type = document.source_type if document else None
+
+        if document is None:
+            raise ValueError(
+                f"document_id={document_id} not found in rag.documents — "
+                "was process_document() enqueued before the Document row "
+                "was committed?"
+            )
+
+        source_type = document.source_type
         blocks = extract_document(filename, file_content, source_type)
 
         if not blocks or all(not block.text.strip() for block in blocks):
@@ -291,11 +305,18 @@ class DocumentProcessor:
             len(texts),
             _EMBED_BATCH_SIZE,
         )
-        embeddings = _embed_texts_sync(texts)
+        embeddings, embed_failed = _embed_texts_sync(texts)
 
         # 6. Build and INSERT Chunk ORM rows
         chunk_rows = []
         for i, chunk_data in enumerate(all_chunks_data):
+            metadata = chunk_data["metadata"]
+            if embed_failed[i]:
+                # Mark so a later job can find and re-embed these chunks
+                # instead of silently keeping a dead zero-vector forever.
+                metadata = dict(metadata)
+                metadata["needs_reembed"] = True
+
             row = ChunkModel(
                 document_id=document_id,
                 domain_id=domain_id,
@@ -304,12 +325,21 @@ class DocumentProcessor:
                 page_number=chunk_data["page_number"],
                 section=chunk_data["section"],
                 embedding_model=settings.EMBEDDING_MODEL,
-                metadata_=chunk_data["metadata"],
+                metadata_=metadata,
             )
             chunk_rows.append(row)
 
         db.add_all(chunk_rows)
         db.flush()  # assign IDs before Qdrant upsert
+
+        if any(embed_failed):
+            logger.warning(
+                "document_id=%s: %d/%d chunks stored with zero vectors "
+                "(needs_reembed=True) due to embedding failures",
+                document_id,
+                sum(embed_failed),
+                len(embed_failed),
+            )
 
         # 7. Upsert embeddings into Qdrant
         _upsert_chunks_to_qdrant(
