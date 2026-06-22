@@ -10,7 +10,7 @@ from sqlalchemy import text, select
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.db.models import User, DomainRole
+from app.models.db.models import AuditLog, User, DomainRole
 from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
 from app.services.retrieval.pipeline import RetrievalPipeline
 from app.services.retrieval.table_lookup import CsvTableLookupService
@@ -168,14 +168,31 @@ async def query(
             ),
         ) from exc
 
-    # Async judge evaluation — fire and forget, never blocks response
-    query_id = str(uuid4())
-    _fire_judge_task(
+    # Immutable per-query audit record. Judge results are stored separately.
+    query_id = uuid4()
+    audit_log = AuditLog(
         query_id=query_id,
+        user_id=current_user.id,
+        domains_queried=domain_uuids,
+        retrieved_chunk_ids=_uuid_list(c.get("id") for c in retrieval_result.chunks),
+        graph_nodes_traversed=_uuid_list(
+            g.get("node_id") for g in (retrieval_result.graph_citations or [])
+        ),
+        llm_route=generation.llm_route,
+        confidence_score=retrieval_result.confidence_score,
+    )
+    db.add(audit_log)
+    await db.flush()
+    await db.commit()
+
+    judge_context = _build_judge_context(retrieval_result.chunks)
+    _fire_judge_task(
+        query_id=str(query_id),
+        audit_log_id=str(audit_log.id),
         query=request.query,
-        context=[c.model_dump() for c in context_chunks],
+        context=judge_context,
+        graph_context=retrieval_result.graph_citations or [],
         answer=generation.answer,
-        # FIX: current_user is a User ORM object; .id is a UUID
         user_id=str(current_user.id),
         domain_ids=request.domain_ids,
         llm_route=generation.llm_route,
@@ -196,22 +213,37 @@ async def query(
     ]
 
     return QueryResponse(
+        query_id=query_id,
         answer=generation.answer,
         llm_route=generation.llm_route,
         language_detected=generation.language_detected,
         citations=citations,
         confidence_score=retrieval_result.confidence_score,
         signals_used=retrieval_result.signals_used,
+        evaluation=None,
     )
 
 
-def _fire_judge_task(query_id, query, context, answer, user_id, domain_ids, llm_route, confidence_score):
+def _fire_judge_task(
+    query_id,
+    audit_log_id,
+    query,
+    context,
+    graph_context,
+    answer,
+    user_id,
+    domain_ids,
+    llm_route,
+    confidence_score,
+):
     try:
         from app.workers.tasks import run_judge_evaluation
         run_judge_evaluation.delay(
             query_id=query_id,
+            audit_log_id=audit_log_id,
             query=query,
             context=context,
+            graph_context=graph_context,
             answer=answer,
             user_id=user_id,
             domain_ids=domain_ids,
@@ -220,3 +252,32 @@ def _fire_judge_task(query_id, query, context, answer, user_id, domain_ids, llm_
         )
     except Exception:
         pass  # never block the response for judge failures
+
+
+def _build_judge_context(chunks: list[dict]) -> list[dict]:
+    return [
+        {
+            "source_number": index,
+            "chunk_id": str(c.get("id", "")),
+            "document_title": c.get("document_title", "Unknown"),
+            "page_number": c.get("page_number"),
+            "section": c.get("section"),
+            "domain_id": str(c.get("domain_id", "")),
+            "domain_name": c.get("domain_name", ""),
+            "relevance_score": c.get("score", 0.0),
+            "content": c.get("content", ""),
+        }
+        for index, c in enumerate(chunks, start=1)
+    ]
+
+
+def _uuid_list(values) -> list[UUID]:
+    result = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            result.append(UUID(str(value)))
+        except (TypeError, ValueError):
+            continue
+    return result

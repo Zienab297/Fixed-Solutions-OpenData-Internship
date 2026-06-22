@@ -317,6 +317,36 @@ class AuditLog(Base):
 
 
 # ---------------------------------------------------------------------------
+# Evaluation Results (append-only async judge records)
+# ---------------------------------------------------------------------------
+
+class EvaluationResult(Base):
+    __tablename__ = "evaluation_results"
+    __table_args__ = (
+        Index("idx_eval_query", "query_id"),
+        Index("idx_eval_audit", "audit_log_id"),
+        Index("idx_eval_created", "created_at"),
+        Index("idx_eval_flagged", "flagged"),
+        {"schema": "rag"},
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    audit_log_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("rag.audit_logs.id"), nullable=False
+    )
+    query_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    judge_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    faithfulness_score: Mapped[float] = mapped_column(Float, nullable=False)
+    relevance_score: Mapped[float] = mapped_column(Float, nullable=False)
+    completeness_score: Mapped[float] = mapped_column(Float, nullable=False)
+    citation_accuracy_score: Mapped[float] = mapped_column(Float, nullable=False)
+    judge_rationale: Mapped[Optional[dict]] = mapped_column(JSONB)
+    raw_response: Mapped[Optional[dict]] = mapped_column(JSONB)
+    flagged: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
 # Golden Dataset
 # ---------------------------------------------------------------------------
 
@@ -353,6 +383,9 @@ class ModerationQueue(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     audit_log_id: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.audit_logs.id")
+    )
+    evaluation_result_id: Mapped[Optional[UUID]] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("rag.evaluation_results.id")
     )
     domain_id: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.domains.id")

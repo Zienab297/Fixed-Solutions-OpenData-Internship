@@ -48,12 +48,67 @@ export type Citation = {
 };
 
 export type QueryResponse = {
+  query_id: string;
   answer: string;
   llm_route: "local" | "api";
   language_detected: string;
   citations: Citation[];
   confidence_score: number;
   signals_used: string[];
+  evaluation?: EvaluationScores | null;
+};
+
+export type EvaluationScores = {
+  id?: string;
+  audit_log_id?: string;
+  judge_model?: string;
+  faithfulness?: number | null;
+  relevance?: number | null;
+  completeness?: number | null;
+  citation_accuracy?: number | null;
+  rationale?: Record<string, unknown> | null;
+  flagged?: boolean | null;
+  created_at?: string | null;
+};
+
+export type EvaluationStatusResponse = {
+  query_id: string;
+  status: "pending" | "completed";
+  evaluation: EvaluationScores | null;
+};
+
+export type QualityDomainSummary = {
+  domain_id: string;
+  domain_name: string;
+  evaluation_count: number;
+  flagged_count: number;
+  scores: Required<Pick<EvaluationScores, "faithfulness" | "relevance" | "completeness" | "citation_accuracy">>;
+  route_breakdown: Array<{
+    llm_route: string;
+    evaluation_count: number;
+    flagged_count: number;
+    scores: Required<Pick<EvaluationScores, "faithfulness" | "relevance" | "completeness" | "citation_accuracy">>;
+  }>;
+  last_evaluated_at?: string | null;
+};
+
+export type ModerationItem = {
+  id: string;
+  audit_log_id: string;
+  evaluation_result_id: string;
+  query_id: string;
+  domain_id?: string | null;
+  domain_name?: string | null;
+  status: "pending" | "accepted" | "rejected";
+  reviewer_rationale?: string | null;
+  judge_model: string;
+  scores: Required<Pick<EvaluationScores, "faithfulness" | "relevance" | "completeness" | "citation_accuracy">>;
+  rationale: Record<string, unknown>;
+  flagged: boolean;
+  llm_route?: string | null;
+  confidence_score?: number | null;
+  created_at?: string | null;
+  evaluated_at?: string | null;
 };
 
 export type IngestionStatus = "pending" | "processing" | "completed" | "failed";

@@ -51,8 +51,24 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - rag-net
-    # Pull the local generation and embedding models on first start.
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull ${GENERATION_MODEL:-llama3.2:3b} && ollama pull ${EMBEDDING_MODEL:-bge-m3:latest} && wait"]
+    environment:
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
+    # Keep serving even if model pull fails; the API/worker will surface model errors.
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5; for model in \"$${LOCAL_LLM_MODEL:-llama3.2:3b}\" \"$${EMBEDDING_MODEL:-bge-m3:latest}\"; do ollama show \"$${model}\" >/dev/null 2>&1 || ollama pull \"$${model}\" || echo \"warning: failed to pull $${model}\"; done; wait"]
+
+  # ── Ollama (dedicated judge LLM) ───────────────────────────────────
+  judge-ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11435:11434"
+    volumes:
+      - judge_ollama_data:/root/.ollama
+    networks:
+      - rag-net
+    environment:
+      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5; ollama show \"$${JUDGE_MODEL:-llama3.2:3b}\" >/dev/null 2>&1 || ollama pull \"$${JUDGE_MODEL:-llama3.2:3b}\" || echo \"warning: failed to pull $${JUDGE_MODEL:-llama3.2:3b}\"; wait"]
 
   # ── FastAPI backend ─────────────────────────────────────────────────
   api:
@@ -68,7 +84,10 @@ services:
       DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
       LOCAL_LLM_BASE_URL: http://ollama:11434/v1
-      LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
+      JUDGE_ENABLED: "true"
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
       EMBEDDING_DIMENSION: 1024
       OCR_LANG: ${OCR_LANG:-ar}
@@ -98,7 +117,7 @@ services:
     build:
       context: ../..
       dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app worker --loglevel=info -P solo --concurrency=1 -Q ingestion,evaluation,extraction,celery
+    command: celery -A app.workers.celery_app worker --loglevel=info -P solo --concurrency=1 -Q ingestion,extraction,celery
     gpus: all
     environment:
       DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
@@ -111,7 +130,10 @@ services:
       DEV_MODE: "true"
       OLLAMA_BASE_URL: http://ollama:11434
       LOCAL_LLM_BASE_URL: http://ollama:11434/v1
-      LOCAL_LLM_MODEL: ${GENERATION_MODEL:-llama3.2:3b}
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
+      JUDGE_ENABLED: "true"
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
       EMBEDDING_DIMENSION: 1024
       OCR_LANG: ${OCR_LANG:-ar}
@@ -123,6 +145,35 @@ services:
       redis:
         condition: service_started
       ollama:
+        condition: service_started
+    networks:
+      - rag-net
+
+  # ── Celery evaluation worker ───────────────────────────────────────
+  evaluation-worker:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    command: celery -A app.workers.celery_app worker --loglevel=info -P solo --concurrency=1 -Q evaluation
+    environment:
+      DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
+      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
+      DEV_MODE: "true"
+      OLLAMA_BASE_URL: http://ollama:11434
+      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
+      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
+      JUDGE_ENABLED: "true"
+      JUDGE_SCORE_THRESHOLD: ${JUDGE_SCORE_THRESHOLD:-0.7}
+      MOCK_LLM_RESPONSES: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      judge-ollama:
         condition: service_started
     networks:
       - rag-net
@@ -146,6 +197,7 @@ volumes:
   ollama_data:
     external: true
     name: rag-main-ollama
+  judge_ollama_data:
 
 networks:
   rag-net:

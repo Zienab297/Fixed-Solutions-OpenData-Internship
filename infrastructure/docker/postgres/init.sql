@@ -128,6 +128,22 @@ CREATE TABLE IF NOT EXISTS rag.audit_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Evaluation results (immutable, append-only async judge records)
+CREATE TABLE IF NOT EXISTS rag.evaluation_results (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    audit_log_id UUID NOT NULL REFERENCES rag.audit_logs(id),
+    query_id UUID NOT NULL,
+    judge_model VARCHAR(255) NOT NULL,
+    faithfulness_score FLOAT NOT NULL,
+    relevance_score FLOAT NOT NULL,
+    completeness_score FLOAT NOT NULL,
+    citation_accuracy_score FLOAT NOT NULL,
+    judge_rationale JSONB,
+    raw_response JSONB,
+    flagged BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Golden dataset for nightly regression
 CREATE TABLE IF NOT EXISTS rag.golden_dataset (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -143,6 +159,7 @@ CREATE TABLE IF NOT EXISTS rag.golden_dataset (
 CREATE TABLE IF NOT EXISTS rag.moderation_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     audit_log_id UUID REFERENCES rag.audit_logs(id),
+    evaluation_result_id UUID REFERENCES rag.evaluation_results(id),
     domain_id UUID REFERENCES rag.domains(id),
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
     reviewed_by UUID REFERENCES rag.users(id),
@@ -172,5 +189,9 @@ CREATE INDEX IF NOT EXISTS idx_table_rows_chunk ON rag.table_rows(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_table_rows_data_gin ON rag.table_rows USING GIN (row_data);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON rag.audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON rag.audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_query ON rag.evaluation_results(query_id);
+CREATE INDEX IF NOT EXISTS idx_eval_audit ON rag.evaluation_results(audit_log_id);
+CREATE INDEX IF NOT EXISTS idx_eval_created ON rag.evaluation_results(created_at);
+CREATE INDEX IF NOT EXISTS idx_eval_flagged ON rag.evaluation_results(flagged);
 CREATE INDEX IF NOT EXISTS idx_documents_domain ON rag.documents(domain_id);
 CREATE INDEX IF NOT EXISTS idx_domain_roles_user ON rag.domain_roles(user_id);
