@@ -107,18 +107,22 @@ class GraphSearchService:
 
                 if entity_label not in valid_labels:
                     continue
-
+                
+                print(f"DEBUG graph: querying entity='{entity_text}' label='{entity_label}' domain='{domain}'")
+                print(f"DEBUG graph: valid_labels={valid_labels}")
                 try:
                     rows = await age_client.run_cypher(
                         graph_name=settings.AGE_GRAPH_NAME,
                         cypher_statement=f"""
-                            MATCH (e:{entity_label} {{name: $name, domain: $domain}})-[r]-(related)
+                            MATCH (e:{entity_label} {{domain: $domain}})-[r]-(related)
+                            WHERE toLower(e.name) CONTAINS toLower($name)
+                            OR toLower($name) CONTAINS toLower(e.name)
                             RETURN
                                 e.node_uuid          AS node_uuid,
                                 e.source_chunk_ids   AS chunk_ids,
                                 related.node_uuid    AS related_node_uuid,
-                                related.name          AS related_name,
-                                type(r)                AS relation_type
+                                related.name         AS related_name,
+                                type(r)              AS relation_type
                             LIMIT {_RESULTS_PER_ENTITY}
                         """,
                         params={"name": entity_text, "domain": domain},
@@ -133,12 +137,9 @@ class GraphSearchService:
                 except Exception as exc:
                     # Missing entity in the graph is expected/normal —
                     # log at DEBUG so it doesn't pollute production logs.
-                    logger.debug(
-                        "Graph search skipped for entity '%s' (%s, domain=%s): %s",
-                        entity_text, entity_label, domain, exc,
-                    )
+                    print(f"DEBUG graph ERROR: entity='{entity_text}' label='{entity_label}' domain='{domain}' error={exc}")
                     continue
-
+                print(f"DEBUG graph: rows returned={len(rows)}")
                 for row in rows:
                     node_uuid = row.get("node_uuid")
                     if not node_uuid:
