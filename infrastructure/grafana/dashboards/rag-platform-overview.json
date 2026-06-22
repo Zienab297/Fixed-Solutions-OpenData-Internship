@@ -1,0 +1,115 @@
+{
+  "title": "RAG Platform Overview",
+  "uid": "rag-platform-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API request rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (handler) (rate(http_request_duration_seconds_count[1m]))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "API latency P95 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Retrieval signal hit rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "description": "share of retrieval invocations where each signal returned >=1 result",
+      "targets": [
+        {
+          "expr": "sum by (signal) (rate(rag_retrieval_hit_rate_total{outcome=\"hit\"}[5m])) / sum by (signal) (rate(rag_retrieval_hit_rate_total[5m]))",
+          "legendFormat": "{{signal}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Graph (AGE) query latency P95",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(rag_graph_query_latency_seconds_bucket[5m])))",
+          "legendFormat": "AGE graph"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "LLM routing distribution",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (route) (increase(rag_llm_route_total[1h]))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Celery task duration P95 by task",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, task_name) (rate(rag_celery_task_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Celery queue depth",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "rag_celery_queue_depth",
+          "legendFormat": "{{queue}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Celery task failure rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (task_name) (rate(rag_celery_task_failures_total[5m]))",
+          "legendFormat": "{{task_name}}"
+        }
+      ]
+    }
+  ]
+}

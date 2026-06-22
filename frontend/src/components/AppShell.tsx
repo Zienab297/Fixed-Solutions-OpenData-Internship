@@ -1,4 +1,5 @@
 import {
+  Activity,
   BarChart3,
   Database,
   FileUp,
@@ -82,6 +83,19 @@ export default function AppShell({
               >
                 <BarChart3 size={18} />
                 Quality
+              </NavLink>
+            )}
+
+            {/* Observability — admin only */}
+            {hasRole("admin") && (
+              <NavLink
+                to="/observability"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
+              >
+                <Activity size={18} />
+                Observability
               </NavLink>
             )}
 

@@ -34,3 +34,10 @@ pillow==10.3.0
 PyMuPDF==1.27.2.3
 paddlepaddle==3.2.1
 paddleocr==3.7.0
+
+# Observability (§6.2) -- required at runtime by app/main.py
+# (Instrumentator) and app/workers/observability.py (worker metrics
+# server). Was only in requirements-dev.txt; api/worker/evaluation-worker
+# containers fail to import without these.
+prometheus-fastapi-instrumentator==7.0.0
+prometheus_client==0.25.0

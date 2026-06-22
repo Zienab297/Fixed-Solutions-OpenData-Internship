@@ -34,7 +34,7 @@ services:
   # ── Redis (Celery broker + result backend) ──────────────────────────
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD:-redispassword}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-r1234}
     ports:
       - "6379:6379"
     volumes:
@@ -42,50 +42,29 @@ services:
     networks:
       - rag-net
 
-  # ── Ollama (local generation) ───────────────────────────────────────
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - rag-net
-    environment:
-      LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
-    # Keep serving even if model pull fails; the API/worker will surface model errors.
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5; for model in \"$${LOCAL_LLM_MODEL:-llama3.2:3b}\" \"$${EMBEDDING_MODEL:-bge-m3:latest}\"; do ollama show \"$${model}\" >/dev/null 2>&1 || ollama pull \"$${model}\" || echo \"warning: failed to pull $${model}\"; done; wait"]
-
-  # ── Ollama (dedicated judge LLM) ───────────────────────────────────
-  judge-ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11435:11434"
-    volumes:
-      - judge_ollama_data:/root/.ollama
-    networks:
-      - rag-net
-    environment:
-      JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5; ollama show \"$${JUDGE_MODEL:-llama3.2:3b}\" >/dev/null 2>&1 || ollama pull \"$${JUDGE_MODEL:-llama3.2:3b}\" || echo \"warning: failed to pull $${JUDGE_MODEL:-llama3.2:3b}\"; wait"]
-
   # ── FastAPI backend ─────────────────────────────────────────────────
+  # NOTE: Ollama is no longer containerized — it runs on the host
+  # machine (e.g. `ollama serve` on Windows/native), so OLLAMA_BASE_URL
+  # / JUDGE_LLM_BASE_URL point at host.docker.internal instead of a
+  # `ollama` / `judge-ollama` service name. Docker Desktop (Windows/Mac)
+  # resolves host.docker.internal out of the box; on native Linux Docker
+  # you'd need `extra_hosts: ["host.docker.internal:host-gateway"]` on
+  # each service below, since this compose file targets Docker Desktop.
   api:
     build:
       context: ../..
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
-      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
-      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
+      CELERY_BROKER_URL: redis://:1234@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:1234@redis:6379/1
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       DEV_MODE: "true"
-      OLLAMA_BASE_URL: http://ollama:11434
-      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://localhost:11434/v1}
       LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
-      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_LLM_BASE_URL: ${JUDGE_LLM_BASE_URL:-http://localhost:11434}
       JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
       JUDGE_ENABLED: "true"
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
@@ -102,8 +81,6 @@ services:
         condition: service_started
       redis:
         condition: service_started
-      ollama:
-        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 20s
@@ -112,7 +89,7 @@ services:
     networks:
       - rag-net
 
-  # ── Celery worker ───────────────────────────────────────────────────
+  # ── Celery worker (ingestion + extraction) ──────────────────────────
   worker:
     build:
       context: ../..
@@ -121,17 +98,17 @@ services:
     gpus: all
     environment:
       DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
-      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
-      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
+      CELERY_BROKER_URL: redis://:1234@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:1234@redis:6379/1
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
       DEV_MODE: "true"
-      OLLAMA_BASE_URL: http://ollama:11434
-      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://localhost:11434/v1}
       LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
-      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_LLM_BASE_URL: ${JUDGE_LLM_BASE_URL:-http://localhost:11434}
       JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
       JUDGE_ENABLED: "true"
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3:latest}
@@ -139,12 +116,14 @@ services:
       OCR_LANG: ${OCR_LANG:-ar}
       OCR_DEVICE: ${OCR_DEVICE:-gpu}
       MOCK_LLM_RESPONSES: "false"
+      WORKER_SERVICE_NAME: rag-worker-ingestion
+      PROMETHEUS_WORKER_METRICS_PORT: "9090"
+    ports:
+      - "9101:9090"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      ollama:
         condition: service_started
     networks:
       - rag-net
@@ -157,23 +136,25 @@ services:
     command: celery -A app.workers.celery_app worker --loglevel=info -P solo --concurrency=1 -Q evaluation
     environment:
       DATABASE_URL: postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
-      CELERY_BROKER_URL: redis://:redispassword@redis:6379/0
-      CELERY_RESULT_BACKEND: redis://:redispassword@redis:6379/1
+      CELERY_BROKER_URL: redis://:1234@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:1234@redis:6379/1
       DEV_MODE: "true"
-      OLLAMA_BASE_URL: http://ollama:11434
-      LOCAL_LLM_BASE_URL: http://ollama:11434/v1
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      LOCAL_LLM_BASE_URL: ${LOCAL_LLM_BASE_URL:-http://localhost:11434/v1}
       LOCAL_LLM_MODEL: ${LOCAL_LLM_MODEL:-llama3.2:3b}
-      JUDGE_LLM_BASE_URL: http://judge-ollama:11434
+      JUDGE_LLM_BASE_URL: ${JUDGE_LLM_BASE_URL:-http://localhost:11434}
       JUDGE_MODEL: ${JUDGE_MODEL:-llama3.2:3b}
       JUDGE_ENABLED: "true"
       JUDGE_SCORE_THRESHOLD: ${JUDGE_SCORE_THRESHOLD:-0.7}
       MOCK_LLM_RESPONSES: "false"
+      WORKER_SERVICE_NAME: rag-worker-evaluation
+      PROMETHEUS_WORKER_METRICS_PORT: "9090"
+    ports:
+      - "9102:9090"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      judge-ollama:
         condition: service_started
     networks:
       - rag-net
@@ -190,14 +171,49 @@ services:
     networks:
       - rag-net
 
+  # ── Prometheus (scrapes api:8000/metrics, worker:9090,
+  #    evaluation-worker:9090, qdrant:6333 per prometheus.yml) ─────────
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - worker
+      - evaluation-worker
+    networks:
+      - rag-net
+
+  # ── Grafana (Prometheus datasource + dashboard auto-provisioned) ────
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - rag-net
+
 volumes:
   postgres_data:
   qdrant_data:
   redis_data:
-  ollama_data:
-    external: true
-    name: rag-main-ollama
-  judge_ollama_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   rag-net:
