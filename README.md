@@ -336,10 +336,11 @@ Swagger UI available at http://localhost:8000/docs
 From `backend/`:
 
 ```bash
-celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo
+PROMETHEUS_WORKER_METRICS_PORT=9101 celery -A app.workers.celery_app worker --loglevel=debug -Q ingestion,extraction,evaluation --pool=solo
 ```
 
 > `--pool=solo` is required on Windows.
+> `PROMETHEUS_WORKER_METRICS_PORT=9101` is required — without it the worker defaults to port 9090, which collides with Prometheus's own port and breaks the Celery metrics dashboard.
 
 **Terminal 4 — Ollama**
 
@@ -364,7 +365,6 @@ npm run dev
 ```
 
 Frontend available at http://localhost:5173
-
 ---
 
 ## OCR Support

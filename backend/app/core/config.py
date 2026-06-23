@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "changeme123"
 
+    # Observability (§6.2) — per-process metrics server port for Celery
+    # workers (the FastAPI process exposes /metrics directly via
+    # prometheus-fastapi-instrumentator instead) and a label so
+    # structured JSON logs can be told apart per worker service.
+    PROMETHEUS_WORKER_METRICS_PORT: int = 9090
+    WORKER_SERVICE_NAME: str = "rag-worker"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 settings = Settings()

@@ -24,6 +24,9 @@ if sys.platform == "win32":
 
 from celery import Celery
 from app.core.config import settings
+from app.core.logging_config import configure_json_logging
+
+configure_json_logging(service_name=settings.WORKER_SERVICE_NAME)
 
 celery_app = Celery(
     "rag_workers",
@@ -31,6 +34,12 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.workers.tasks"],
 )
+
+# Registers worker_process_init / task_prerun / task_postrun / task_failure
+# signal handlers (§6.2: judge queue depth, evaluation latency, structured
+# JSON logging). Must be imported — not just defined — for Celery's signal
+# dispatch to pick the handlers up.
+import app.workers.observability  # noqa: E402,F401
 
 celery_app.conf.update(
     task_serializer="json",

@@ -83,7 +83,59 @@ services:
       retries: 5
       start_period: 30s
 
+  # ------------------------------------------------------------------
+  # Prometheus — scrapes the FastAPI app and Celery workers, which run
+  # NATIVELY on the host (conda env), not as containers in this dev
+  # stack. From inside this container, the host is reached via
+  # host.docker.internal (Docker Desktop resolves this automatically
+  # on Windows/Mac; native Linux Docker needs
+  # extra_hosts: ["host.docker.internal:host-gateway"]).
+  # qdrant/ner/age stay on their container service names since those
+  # ARE containers on this same compose network.
+  # ------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+
+  # ------------------------------------------------------------------
+  # Grafana — Prometheus datasource + starter dashboard
+  # auto-provisioned on boot from infrastructure/grafana/.
+  # ALLOW_EMBEDDING + anonymous Viewer access let the React app embed
+  # the dashboard in an <iframe> (frontend/src/pages/ObservabilityPage.tsx)
+  # without a separate Grafana login -- this only grants read-only
+  # dashboard viewing inside Grafana itself; it does NOT affect your
+  # app's own RBAC, which still controls who can navigate to
+  # /observability in the first place.
+  # ------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
   age_data:
   ner_model_cache:
+  prometheus_data:
+  grafana_data:

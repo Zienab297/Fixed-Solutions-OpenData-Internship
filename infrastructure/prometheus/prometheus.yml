@@ -4,12 +4,14 @@ global:
 scrape_configs:
   - job_name: 'rag-api'
     static_configs:
-      - targets: ['api:8000']
+      - targets: ['host.docker.internal:8000']
     metrics_path: '/metrics'
 
-  - job_name: 'celery'
+  - job_name: 'celery-worker'
     static_configs:
-      - targets: ['celery_worker:9090']
+      - targets: ['host.docker.internal:9101']
+        labels:
+          worker_service: rag-worker
 
   - job_name: 'qdrant'
     static_configs:

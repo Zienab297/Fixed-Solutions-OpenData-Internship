@@ -1,8 +1,20 @@
--- Enable Apache AGE extension for graph queries
-
-
 -- Enable pgcrypto for UUID generation
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Full-text search with unaccent support
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_ts_config WHERE cfgname = 'rag_unaccent'
+    ) THEN
+        CREATE TEXT SEARCH CONFIGURATION rag_unaccent (COPY = simple);
+        ALTER TEXT SEARCH CONFIGURATION rag_unaccent
+            ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple;
+    END IF;
+END
+$$;
 
 -- Create application schema
 CREATE SCHEMA IF NOT EXISTS rag;
@@ -78,7 +90,7 @@ CREATE TABLE IF NOT EXISTS rag.documents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Chunks table
+-- Chunks table (with generated tsvector column for BM25 full-text search)
 CREATE TABLE IF NOT EXISTS rag.chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID REFERENCES rag.documents(id) ON DELETE CASCADE,
@@ -91,12 +103,13 @@ CREATE TABLE IF NOT EXISTS rag.chunks (
     embedding_version INTEGER DEFAULT 1,
     graph_node_ids UUID[],
     metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    content_tsv TSVECTOR GENERATED ALWAYS AS (
+        to_tsvector('rag_unaccent', content)
+    ) STORED
 );
 
--- Structured rows extracted from CSV/table-like documents.
--- These power deterministic table QA for counts, max/min, averages, grouping,
--- filtering, and exact lookups without relying on vector retrieval.
+-- Structured rows extracted from CSV/table-like documents
 CREATE TABLE IF NOT EXISTS rag.table_rows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID NOT NULL REFERENCES rag.documents(id) ON DELETE CASCADE,
@@ -183,6 +196,7 @@ CREATE TABLE IF NOT EXISTS rag.crawl_configs (
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_chunks_domain ON rag.chunks(domain_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON rag.chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_content_tsv ON rag.chunks USING GIN (content_tsv);
 CREATE INDEX IF NOT EXISTS idx_table_rows_domain ON rag.table_rows(domain_id);
 CREATE INDEX IF NOT EXISTS idx_table_rows_document ON rag.table_rows(document_id);
 CREATE INDEX IF NOT EXISTS idx_table_rows_chunk ON rag.table_rows(chunk_id);

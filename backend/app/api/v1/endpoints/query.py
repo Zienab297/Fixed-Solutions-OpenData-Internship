@@ -2,6 +2,7 @@
 /query endpoint — full RAG pipeline.
 Retrieval (vector + BM25 + graph) → LLM generation → async judge evaluation.
 """
+import time
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +10,7 @@ from sqlalchemy import text, select
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.metrics import LLM_ROUTE_TOTAL, RAG_QUERY_LATENCY
 from app.core.security import get_current_user
 from app.models.db.models import AuditLog, User, DomainRole
 from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
@@ -59,9 +61,42 @@ async def _check_domain_access(
 @router.post("", response_model=QueryResponse)
 async def query(
     request: QueryRequest,
-    # FIX: get_current_user returns a User ORM object, not CurrentUser Pydantic model
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+) -> QueryResponse:
+    """
+    Thin timing wrapper around _query_impl (§6.2: end-to-end query
+    latency, P50/P95; model routing distribution). _query_impl has
+    several early-return paths (table lookup hit, no-context fallback,
+    normal generation path) plus an HTTPException path on local-LLM
+    timeout, so latency/route metrics are recorded here in a
+    try/finally rather than duplicated at each return site.
+    """
+    start = time.perf_counter()
+    llm_route_for_metric = "unknown"
+    try:
+        response = await _query_impl(request, current_user, db)
+        llm_route_for_metric = response.llm_route
+        return response
+    except HTTPException as exc:
+        # Local LLM timeout (504) still routed through "local"; any
+        # other HTTPException (403 RBAC, etc.) is left as "unknown"
+        # since no route was actually selected.
+        if exc.status_code == 504:
+            llm_route_for_metric = "local"
+        raise
+    finally:
+        elapsed = time.perf_counter() - start
+        RAG_QUERY_LATENCY.labels(llm_route=llm_route_for_metric).observe(elapsed)
+        if llm_route_for_metric in ("local", "api"):
+            LLM_ROUTE_TOTAL.labels(llm_route=llm_route_for_metric).inc()
+
+
+async def _query_impl(
+    request: QueryRequest,
+    # FIX: get_current_user returns a User ORM object, not CurrentUser Pydantic model
+    current_user: User,
+    db: AsyncSession,
 ) -> QueryResponse:
     # RBAC — verify access to all requested domains
     domain_uuids = []
@@ -109,7 +144,15 @@ async def query(
             signals_used=table_result.signals_used or ["table"],
         )
 
-    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres
+    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres.
+    # user_id is required so the pipeline can re-derive which of the
+    # already-RBAC-checked domain_uuids the user holds a role in, for
+    # NER label selection + graph traversal scoping (see
+    # domain_resolver.get_accessible_domain_names). The per-domain
+    # _check_domain_access loop above already guarantees every UUID in
+    # domain_uuids is one the user can read, so this is a second,
+    # independent resolution (UUID -> ontology key) rather than a
+    # second permission check.
     pipeline = RetrievalPipeline(db)
     retrieval_result = await pipeline.retrieve(
         query=request.query,
@@ -253,7 +296,6 @@ def _fire_judge_task(
         )
     except Exception:
         pass  # never block the response for judge failures
-
 
 def _build_judge_context(chunks: list[dict]) -> list[dict]:
     return [
