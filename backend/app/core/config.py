@@ -32,21 +32,33 @@ class Settings(BaseSettings):
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
+    # OCR for scanned / image-heavy PDFs
+    OCR_LANG: str = "ar"
+    OCR_DEVICE: str = "gpu"
+
     # Local LLM (Ollama OpenAI-compatible endpoint)
-    LOCAL_LLM_MODEL: str = "qwen3:8b"
+    LOCAL_LLM_MODEL: str = "llama3.2:3b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
     LOCAL_LLM_MAX_TOKENS: int = 2048
     LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200
-    LOCAL_LLM_CONTEXT_CHARS: int = 4200
+    LOCAL_LLM_CONTEXT_CHARS: int = 6000
+
+    # Judge LLM (dedicated Ollama instance for async answer evaluation)
+    JUDGE_ENABLED: bool = True
+    JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
+    JUDGE_MODEL: str = "llama3.2:3b"
+    JUDGE_TIMEOUT_SECONDS: float = 60.0
+    JUDGE_SCORE_THRESHOLD: float = 0.7
+    JUDGE_CONTEXT_CHARS: int = 8000
 
     # External LLM (Gemini)
     GEMINI_API_KEY: Optional[str] = None
     API_LLM_MODEL: str = "gemini-1.5-flash"
 
     # Legacy alias kept for any code that still reads GENERATION_MODEL
-    GENERATION_MODEL: str = "qwen3:8b"
+    GENERATION_MODEL: str = "llama3.2:3b"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333

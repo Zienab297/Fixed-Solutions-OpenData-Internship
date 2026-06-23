@@ -6,6 +6,7 @@ import AppShell from "./components/AppShell";
 import ChatPage from "./pages/ChatPage";
 import CreateUserPage from "./pages/CreateUserPage";
 import LoginPage from "./pages/LoginPage";
+import QualityPage from "./pages/QualityPage";
 import UploadPage from "./pages/UploadPage";
 
 type Theme = "light" | "dark";
@@ -34,6 +35,7 @@ function AppRoutes({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => 
                 <Route path="/" element={<Navigate to="/chat" replace />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/upload" element={<UploadPage />} />
+                <Route path="/quality" element={<QualityPage />} />
                 <Route path="/users/create" element={<CreateUserPage />} />
                 <Route path="*" element={<Navigate to="/chat" replace />} />
               </Routes>

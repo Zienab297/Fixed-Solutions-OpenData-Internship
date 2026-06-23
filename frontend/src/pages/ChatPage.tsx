@@ -1,19 +1,30 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bot, Loader2, UserRound } from "lucide-react";
 
-import { askQuestion, createDomain, fetchDomains } from "../api";
+import { askQuestion, createDomain, fetchDomains, fetchEvaluation } from "../api";
 import DomainSelect from "../components/DomainSelect";
 import { readRecentDomainIds, rememberDomainId } from "../storage";
 import { useAuth } from "../AuthContext";
-import type { Domain } from "../types";
+import type { Domain, EvaluationScores } from "../types";
 
 type Message = {
   id: string;
+  queryId: string;
   question: string;
   answer: string;
   route?: "local" | "api";
   language?: string;
+  evaluationStatus: "pending" | "completed";
+  evaluation?: EvaluationScores | null;
+  evaluationError?: string;
 };
+
+const evaluationKeys = [
+  ["faithfulness", "Faithfulness"],
+  ["relevance", "Relevance"],
+  ["completeness", "Completeness"],
+  ["citation_accuracy", "Citations"],
+] as const;
 
 export default function ChatPage() {
   const { token, hasRole } = useAuth();
@@ -60,6 +71,61 @@ export default function ChatPage() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (!token) return;
+    const pending = messages.filter(
+      (message) => message.queryId && message.evaluationStatus === "pending",
+    );
+    if (!pending.length) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      await Promise.all(
+        pending.map(async (message) => {
+          try {
+            const result = await fetchEvaluation(token, message.queryId);
+            if (cancelled || result.status !== "completed") return;
+            setMessages((current) =>
+              current.map((item) =>
+                item.id === message.id
+                  ? {
+                      ...item,
+                      evaluationStatus: "completed",
+                      evaluation: result.evaluation,
+                      evaluationError: undefined,
+                    }
+                  : item,
+              ),
+            );
+          } catch (err) {
+            if (cancelled) return;
+            setMessages((current) =>
+              current.map((item) =>
+                item.id === message.id
+                  ? {
+                      ...item,
+                      evaluationError:
+                        err instanceof Error ? err.message : "Evaluation unavailable",
+                    }
+                  : item,
+              ),
+            );
+          }
+        }),
+      );
+    };
+
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 3000);
+    void poll();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [messages, token]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!question.trim() || !token) return;
@@ -78,10 +144,13 @@ export default function ChatPage() {
         ...current,
         {
           id: crypto.randomUUID(),
+          queryId: result.query_id,
           question: currentQuestion,
           answer: result.answer,
           route: result.llm_route,
           language: result.language_detected,
+          evaluationStatus: result.evaluation ? "completed" : "pending",
+          evaluation: result.evaluation ?? null,
         },
       ]);
     } catch (err) {
@@ -159,6 +228,7 @@ export default function ChatPage() {
                       <p className="mt-3 text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
                         {message.route} route · {message.language}
                       </p>
+                      <EvaluationBadge message={message} />
                     </div>
                   </div>
                 </article>
@@ -202,4 +272,64 @@ export default function ChatPage() {
       </section>
     </div>
   );
+}
+
+
+function EvaluationBadge({ message }: { message: Message }) {
+  if (message.evaluationStatus === "pending") {
+    return (
+      <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+        <Loader2 className="animate-spin" size={14} />
+        Judge pending
+      </div>
+    );
+  }
+
+  if (!message.evaluation) {
+    return null;
+  }
+
+  const average = averageScore(message.evaluation);
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span
+        className={`inline-flex items-center rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+          message.evaluation.flagged
+            ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
+            : "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100"
+        }`}
+        title={message.evaluation.flagged ? "Flagged for moderation" : "Judge evaluation passed"}
+      >
+        Judge {formatScore(average)}
+      </span>
+      {evaluationKeys.map(([key, label]) => (
+        <span
+          key={key}
+          className="rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300"
+        >
+          {label} {formatScore(message.evaluation?.[key])}
+        </span>
+      ))}
+      {message.evaluationError ? (
+        <span className="text-xs text-red-600 dark:text-red-400">
+          {message.evaluationError}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+
+function averageScore(evaluation: EvaluationScores): number | null {
+  const values = evaluationKeys
+    .map(([key]) => evaluation[key])
+    .filter((score): score is number => typeof score === "number");
+  if (!values.length) return null;
+  return values.reduce((sum, score) => sum + score, 0) / values.length;
+}
+
+
+function formatScore(score: number | null | undefined): string {
+  if (typeof score !== "number") return "--";
+  return `${Math.round(score * 100)}%`;
 }

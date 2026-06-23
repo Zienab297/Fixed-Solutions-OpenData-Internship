@@ -25,7 +25,7 @@ const acceptedDocumentTypes = [
 const terminalStatuses = new Set(["completed", "failed"]);
 
 export default function UploadPage() {
-  const { token, user, hasRole } = useAuth();
+  const { token, hasRole } = useAuth();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [recentDomainIds, setRecentDomainIds] = useState<string[]>(() =>
     readRecentDomainIds(),
@@ -39,14 +39,11 @@ export default function UploadPage() {
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [error, setError] = useState("");
 
-  // admin/contributor see all domains; domain_admin only sees their own; reader sees none
+  // fetchDomains already returns the user's authorized domains.
   const writableDomains = useMemo(() => {
-    if (hasRole("admin") || hasRole("contributor")) return domains;
-    if (hasRole("domain_admin") && user) {
-      return domains.filter((d) => d.owner_id === user.id);
-    }
+    if (hasRole("contributor")) return domains;
     return [];
-  }, [domains, user, hasRole]);
+  }, [domains, hasRole]);
 
   const effectiveDomainId = useMemo(() => selectedDomainId, [selectedDomainId]);
 
@@ -170,8 +167,7 @@ export default function UploadPage() {
     setRecentDomainIds(rememberDomainId(domain.id));
   }
 
-  // Only admins can create new domains
-  const canCreateDomain = hasRole("admin");
+  const canCreateDomain = hasRole("domain_admin");
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6">

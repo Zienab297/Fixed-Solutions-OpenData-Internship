@@ -25,7 +25,7 @@ class LocalLLMService:
                     json={
                         "model": selected_model,
                         "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.2,
+                        "temperature": 0.0,
                         "max_tokens": settings.LOCAL_LLM_MAX_TOKENS,
                     },
                 )
