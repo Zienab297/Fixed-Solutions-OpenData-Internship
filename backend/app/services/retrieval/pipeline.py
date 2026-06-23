@@ -128,6 +128,8 @@ class RetrievalPipeline:
             self.ner_service.classify_query(query),
         )
 
+        print(f"DEBUG NER entities: {entities}")
+        print(f"DEBUG domain_names: {domain_names}")
         # Caller-supplied override wins over auto-detection
         lang = language or detected_lang
         has_entities = bool(entities)

@@ -343,6 +343,7 @@ class DocumentProcessor:
                 len(embed_failed),
             )
 
+        # 7. Upsert embeddings into Qdrant
         # 7. Persist structured CSV rows for deterministic table QA.
         if source_type == "csv":
             _replace_structured_table_rows(
