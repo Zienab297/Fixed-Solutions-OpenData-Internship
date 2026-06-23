@@ -8,6 +8,20 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = "rag-api"
     KEYCLOAK_CLIENT_SECRET: str = "secret"
 
+    # NER microservice
+    NER_SERVICE_URL: str = "http://localhost:8001"
+    # Apache AGE (graph database)
+    AGE_HOST: str = "localhost"
+    AGE_PORT: int = 5455
+    AGE_DB: str = "agedb"
+    AGE_USER: str = "ageuser"
+    AGE_PASSWORD: str = "agepassword"
+    AGE_GRAPH_NAME: str = "rag_ontology"
+
+    # Async connection pool sizing
+    AGE_POOL_MIN_SIZE: int = 2
+    AGE_POOL_MAX_SIZE: int = 10
+
     CELERY_BROKER_URL: str = "redis://:changeme@localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
@@ -26,8 +40,8 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: str = "llama3.2:3b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
-    LOCAL_LLM_MAX_TOKENS: int = 512
-    LOCAL_LLM_CONTEXT_CHUNKS: int = 8
+    LOCAL_LLM_MAX_TOKENS: int = 2048
+    LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200
     LOCAL_LLM_CONTEXT_CHARS: int = 6000
 

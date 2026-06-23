@@ -96,6 +96,8 @@ async def ingest_document(
             file_bytes=file_bytes,
             ingested_by=internal_user_id,
         )
+        await db.commit()  # ensure the Document row is durable before the
+                            # Celery worker (separate process/session) reads it
     except DuplicateDocumentError as exc:
         # Exact same file — nothing changed, nothing to do
         raise HTTPException(
@@ -180,6 +182,8 @@ async def replace_document(
             file_bytes=file_bytes,
             ingested_by=internal_user_id,
         )
+        await db.commit()  # ensure delete + new insert are durable before
+                            # the Celery worker reads the new document
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

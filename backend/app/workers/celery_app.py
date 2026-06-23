@@ -1,7 +1,27 @@
 """
 Celery application configuration.
 Three queues: ingestion, evaluation, extraction.
+
+PATCHED — Windows event loop policy fix:
+Tasks that use psycopg async (run_entity_extraction -> age_client.py)
+call asyncio.run(...) inside the worker process. On Windows, a freshly
+spawned process defaults to ProactorEventLoop, which psycopg's async
+mode explicitly refuses to run under ("Psycopg cannot use the
+'ProactorEventLoop' to run in async mode"). This must be set before
+ANY event loop is created in the process — celery_app.py is the first
+app-specific module the worker imports, so it's set here, once, for
+the whole process, rather than per-task in tasks.py (which would be
+too late if anything else in the process touches asyncio first).
+
+Only applies on win32 — Linux/Mac workers (e.g. in Docker/prod) use
+the default policy untouched, since this issue is Windows-only.
 """
+import sys
+import asyncio
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from celery import Celery
 from app.core.config import settings
 

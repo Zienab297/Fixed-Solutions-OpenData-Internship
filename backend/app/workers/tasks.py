@@ -35,12 +35,18 @@ def process_web_crawl(self, domain_id: str, seed_urls: list, max_depth: int = 2)
         raise self.retry(exc=exc)
 
 
-@celery_app.task()
-def run_entity_extraction(document_id: str, domain_id: str):
-    from app.services.graph.extractor import GraphExtractor
-    import asyncio
-    extractor = GraphExtractor()
-    asyncio.run(extractor.extract_and_store(document_id, domain_id))
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=120)
+def run_entity_extraction(self, document_id: str, domain_id: str):
+    try:
+        from app.services.graph.extractor import GraphExtractor
+        import asyncio
+        extractor = GraphExtractor()
+        asyncio.run(extractor.extract_and_store(document_id, domain_id))
+    except Exception as exc:
+        import traceback
+        print(f"EXTRACTION FAILED document_id={document_id}:", str(exc))
+        print(traceback.format_exc())
+        raise self.retry(exc=exc)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)

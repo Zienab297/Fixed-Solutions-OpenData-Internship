@@ -1,0 +1,150 @@
+{
+  "ontology": "Legal Domain Ontology — Minimal Core",
+  "inspired_by": "LKIF-Core",
+  "schema_version": "v1.0",
+  "node_labels": [
+    {
+      "label": "LegalNorm",
+      "description": "A law, statute, article, regulation",
+      "key_properties": ["name", "citation", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "LegalCase",
+      "description": "A court case/precedent",
+      "key_properties": ["name", "case_number", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "LegalRole",
+      "description": "A role a party can hold (plaintiff, defendant, judge, etc.)",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "LegalAct",
+      "description": "An action with legal effect (contract, filing, appeal)",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "LegalRight",
+      "description": "A right held by a party",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "LegalObligation",
+      "description": "A duty/obligation imposed on a party",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Court",
+      "description": "A judicial body",
+      "key_properties": ["name", "jurisdiction", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Jurisdiction",
+      "description": "A legal territory/system (e.g. federal, state)",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    },
+    {
+      "label": "Sanction",
+      "description": "A penalty/punishment",
+      "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
+    }
+  ],
+  "relationship_types": [
+    {
+      "relationship": "IS_A",
+      "from": "LegalNorm",
+      "to": "LegalNorm",
+      "meaning": "Norm subclass/specialization hierarchy"
+    },
+    {
+      "relationship": "GOVERNED_BY",
+      "from": "LegalAct",
+      "to": "LegalNorm",
+      "meaning": "Act is governed by this norm"
+    },
+    {
+      "relationship": "CITES",
+      "from": "LegalCase",
+      "to": "LegalCase",
+      "meaning": "Case cites precedent"
+    },
+    {
+      "relationship": "CITES_NORM",
+      "from": "LegalCase",
+      "to": "LegalNorm",
+      "meaning": "Case relies on/interprets this norm"
+    },
+    {
+      "relationship": "DECIDED_BY",
+      "from": "LegalCase",
+      "to": "Court",
+      "meaning": "Case decided by this court"
+    },
+    {
+      "relationship": "HAS_JURISDICTION",
+      "from": "Court",
+      "to": "Jurisdiction",
+      "meaning": "Court operates within jurisdiction"
+    },
+    {
+      "relationship": "GRANTS_RIGHT",
+      "from": "LegalNorm",
+      "to": "LegalRight",
+      "meaning": "Norm grants this right"
+    },
+    {
+      "relationship": "IMPOSES_OBLIGATION",
+      "from": "LegalNorm",
+      "to": "LegalObligation",
+      "meaning": "Norm imposes this obligation"
+    },
+    {
+      "relationship": "HELD_BY",
+      "from": "LegalRight",
+      "to": "LegalRole",
+      "meaning": "Right is held by this role"
+    },
+    {
+      "relationship": "OWED_BY",
+      "from": "LegalObligation",
+      "to": "LegalRole",
+      "meaning": "Obligation is owed by this role"
+    },
+    {
+      "relationship": "PENALIZED_BY",
+      "from": "LegalObligation",
+      "to": "Sanction",
+      "meaning": "Breach of obligation triggers sanction"
+    },
+    {
+      "relationship": "APPLIES_IN",
+      "from": "LegalNorm",
+      "to": "Jurisdiction",
+      "meaning": "Norm is applicable within jurisdiction"
+    }
+  ],
+  "norm_hierarchy": {
+    "description": "Top-level, LKIF-style — IS_A chains",
+    "root": "LegalNorm",
+    "children": [
+      { "name": "Constitution" },
+      {
+        "name": "Statute",
+        "children": [
+          { "name": "CivilStatute" },
+          { "name": "CriminalStatute" },
+          { "name": "AdministrativeStatute" }
+        ]
+      },
+      { "name": "Regulation" },
+      { "name": "Contract" },
+      { "name": "Precedent" }
+    ]
+  },
+  "ner_extraction_notes": [
+    "Treat the 9 node labels above as the closed entity-type set the NER model outputs.",
+    "Treat the 12 relationship types as the closed predicate set the triple-extraction LLM must map to.",
+    "domain property is always \"legal\" for these nodes — used by Phase 5 RBAC filtering.",
+    "schema_version lets Phase 6 detect which nodes need re-extraction when you update this file."
+  ]
+}

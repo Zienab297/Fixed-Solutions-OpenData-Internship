@@ -114,6 +114,7 @@ async def query(
     retrieval_result = await pipeline.retrieve(
         query=request.query,
         domain_ids=domain_uuids,
+        user_id=current_user.id,
         top_k=request.top_k,
     )
 
