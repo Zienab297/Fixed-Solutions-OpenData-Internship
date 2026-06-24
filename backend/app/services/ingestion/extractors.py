@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -60,13 +63,14 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
             continue
 
         ocr_text = _ocr_page(file_bytes, page_number)
+        ocr_metadata = {"source_type": "pdf", "ocr_used": True}
 
         if text:
             blocks.append(
                 ExtractedBlock(
                     text=text,
                     page_number=page_number,
-                    metadata={"source_type": "pdf"},
+                    metadata=ocr_metadata,
                 )
             )
 
@@ -75,7 +79,15 @@ def extract_pdf(file_bytes: bytes) -> list[ExtractedBlock]:
                 ExtractedBlock(
                     text=ocr_text,
                     page_number=page_number,
-                    metadata={"source_type": "pdf", "block_type": "ocr"},
+                    metadata={**ocr_metadata, "block_type": "ocr"},
+                )
+            )
+        elif not text:
+            blocks.append(
+                ExtractedBlock(
+                    text="",
+                    page_number=page_number,
+                    metadata=ocr_metadata,
                 )
             )
 
@@ -174,7 +186,7 @@ def extract_csv(file_bytes: bytes, rows_per_block: int = 10) -> list[ExtractedBl
         return []
 
     blocks: list[ExtractedBlock] = []
-    columns = sorted({column for row in rows for column in row})
+    columns = _collect_columns(rows)
 
     for start in range(0, len(rows), rows_per_block):
         batch = rows[start : start + rows_per_block]
@@ -199,6 +211,13 @@ def extract_csv(file_bytes: bytes, rows_per_block: int = 10) -> list[ExtractedBl
                     "row_start": row_start,
                     "row_end": row_end,
                     "columns": columns,
+                    "rows": [
+                        {
+                            "row_number": row_number,
+                            "values": row,
+                        }
+                        for row_number, row in enumerate(batch, start=row_start)
+                    ],
                 },
             )
         )
@@ -343,3 +362,15 @@ def _column_name(headers: list[str], index: int) -> str:
     if index < len(headers):
         return headers[index]
     return f"extra_column_{index + 1}"
+
+
+def _collect_columns(rows: list[dict[str, str]]) -> list[str]:
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for column in row:
+            if column in seen:
+                continue
+            seen.add(column)
+            columns.append(column)
+    return columns

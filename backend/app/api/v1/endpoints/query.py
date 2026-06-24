@@ -2,18 +2,23 @@
 /query endpoint — full RAG pipeline.
 Retrieval (vector + BM25 + graph) → LLM generation → async judge evaluation.
 """
+import time
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.metrics import LLM_ROUTE_TOTAL, RAG_QUERY_LATENCY
 from app.core.security import get_current_user
-from app.models.db.models import User, DomainRole
+from app.models.db.models import AuditLog, User, DomainRole
 from app.schemas.query import QueryRequest, QueryResponse, Citation, ContextChunk
 from app.services.retrieval.pipeline import RetrievalPipeline
+from app.services.retrieval.table_lookup import CsvTableLookupService
 from app.services.llm.router import LLMRouter
 from app.services.llm.local_llm import LocalLLMTimeoutError
+from app.services.llm.language_detector import detect_language
 
 router = APIRouter(prefix="/query", tags=["Query"])
 
@@ -35,6 +40,9 @@ async def _check_domain_access(
     ROLE_LEVELS = {"reader": 0, "contributor": 1, "domain_admin": 2}
     required_level = ROLE_LEVELS.get(required_role, 0)
 
+    if current_user.email == settings.ADMIN_EMAIL:
+        return
+
     result = await db.execute(
         select(DomainRole).where(
             DomainRole.user_id == current_user.id,
@@ -53,9 +61,42 @@ async def _check_domain_access(
 @router.post("", response_model=QueryResponse)
 async def query(
     request: QueryRequest,
-    # FIX: get_current_user returns a User ORM object, not CurrentUser Pydantic model
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+) -> QueryResponse:
+    """
+    Thin timing wrapper around _query_impl (§6.2: end-to-end query
+    latency, P50/P95; model routing distribution). _query_impl has
+    several early-return paths (table lookup hit, no-context fallback,
+    normal generation path) plus an HTTPException path on local-LLM
+    timeout, so latency/route metrics are recorded here in a
+    try/finally rather than duplicated at each return site.
+    """
+    start = time.perf_counter()
+    llm_route_for_metric = "unknown"
+    try:
+        response = await _query_impl(request, current_user, db)
+        llm_route_for_metric = response.llm_route
+        return response
+    except HTTPException as exc:
+        # Local LLM timeout (504) still routed through "local"; any
+        # other HTTPException (403 RBAC, etc.) is left as "unknown"
+        # since no route was actually selected.
+        if exc.status_code == 504:
+            llm_route_for_metric = "local"
+        raise
+    finally:
+        elapsed = time.perf_counter() - start
+        RAG_QUERY_LATENCY.labels(llm_route=llm_route_for_metric).observe(elapsed)
+        if llm_route_for_metric in ("local", "api"):
+            LLM_ROUTE_TOTAL.labels(llm_route=llm_route_for_metric).inc()
+
+
+async def _query_impl(
+    request: QueryRequest,
+    # FIX: get_current_user returns a User ORM object, not CurrentUser Pydantic model
+    current_user: User,
+    db: AsyncSession,
 ) -> QueryResponse:
     # RBAC — verify access to all requested domains
     domain_uuids = []
@@ -75,13 +116,73 @@ async def query(
         if row:
             domain_routes[domain_id_str] = row.llm_route if row.llm_route != "auto" else "local"
 
-    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres
+    table_lookup = CsvTableLookupService()
+    table_result = await table_lookup.lookup(
+        query=request.query,
+        domain_ids=domain_uuids,
+        db=db,
+    )
+    if table_result:
+        citations = [
+            Citation(
+                chunk_id=str(c["id"]),
+                document_title=c.get("document_title", ""),
+                page_number=c.get("page_number"),
+                section=c.get("section"),
+                domain_id=str(c.get("domain_id", "")),
+                domain_name=c.get("domain_name", ""),
+                relevance_score=c.get("score", 1.0),
+            )
+            for c in table_result.chunks
+        ]
+        return QueryResponse(
+            answer=table_result.answer,
+            llm_route="local",
+            language_detected=detect_language(request.query),
+            citations=citations,
+            confidence_score=table_result.confidence_score,
+            signals_used=table_result.signals_used or ["table"],
+        )
+
+    # Retrieval — pipeline receives db so BM25 + Graph can query Postgres.
+    # user_id is required so the pipeline can re-derive which of the
+    # already-RBAC-checked domain_uuids the user holds a role in, for
+    # NER label selection + graph traversal scoping (see
+    # domain_resolver.get_accessible_domain_names). The per-domain
+    # _check_domain_access loop above already guarantees every UUID in
+    # domain_uuids is one the user can read, so this is a second,
+    # independent resolution (UUID -> ontology key) rather than a
+    # second permission check.
     pipeline = RetrievalPipeline(db)
     retrieval_result = await pipeline.retrieve(
         query=request.query,
         domain_ids=domain_uuids,
+        user_id=current_user.id,
         top_k=request.top_k,
     )
+
+    if not retrieval_result.chunks:
+        fallback_chunks = await table_lookup.search_context(
+            query=request.query,
+            domain_ids=domain_uuids,
+            db=db,
+            top_k=request.top_k,
+        )
+        if fallback_chunks:
+            retrieval_result.chunks = fallback_chunks
+            retrieval_result.citations = pipeline._build_citations(fallback_chunks)
+            retrieval_result.confidence_score = 0.85
+            retrieval_result.signals_used = retrieval_result.signals_used + ["csv_row_fallback"]
+        else:
+            llm_route = LLMRouter().determine_route(request.domain_ids, domain_routes)
+            return QueryResponse(
+                answer="I don't have enough information in the selected documents to answer that.",
+                llm_route=llm_route,
+                language_detected=detect_language(request.query),
+                citations=[],
+                confidence_score=0.0,
+                signals_used=retrieval_result.signals_used,
+            )
 
     # Build ContextChunks for LLMRouter
     context_chunks = [
@@ -111,14 +212,31 @@ async def query(
             ),
         ) from exc
 
-    # Async judge evaluation — fire and forget, never blocks response
-    query_id = str(uuid4())
-    _fire_judge_task(
+    # Immutable per-query audit record. Judge results are stored separately.
+    query_id = uuid4()
+    audit_log = AuditLog(
         query_id=query_id,
+        user_id=current_user.id,
+        domains_queried=domain_uuids,
+        retrieved_chunk_ids=_uuid_list(c.get("id") for c in retrieval_result.chunks),
+        graph_nodes_traversed=_uuid_list(
+            g.get("node_id") for g in (retrieval_result.graph_citations or [])
+        ),
+        llm_route=generation.llm_route,
+        confidence_score=retrieval_result.confidence_score,
+    )
+    db.add(audit_log)
+    await db.flush()
+    await db.commit()
+
+    judge_context = _build_judge_context(retrieval_result.chunks)
+    _fire_judge_task(
+        query_id=str(query_id),
+        audit_log_id=str(audit_log.id),
         query=request.query,
-        context=[c.model_dump() for c in context_chunks],
+        context=judge_context,
+        graph_context=retrieval_result.graph_citations or [],
         answer=generation.answer,
-        # FIX: current_user is a User ORM object; .id is a UUID
         user_id=str(current_user.id),
         domain_ids=request.domain_ids,
         llm_route=generation.llm_route,
@@ -139,22 +257,37 @@ async def query(
     ]
 
     return QueryResponse(
+        query_id=query_id,
         answer=generation.answer,
         llm_route=generation.llm_route,
         language_detected=generation.language_detected,
         citations=citations,
         confidence_score=retrieval_result.confidence_score,
         signals_used=retrieval_result.signals_used,
+        evaluation=None,
     )
 
 
-def _fire_judge_task(query_id, query, context, answer, user_id, domain_ids, llm_route, confidence_score):
+def _fire_judge_task(
+    query_id,
+    audit_log_id,
+    query,
+    context,
+    graph_context,
+    answer,
+    user_id,
+    domain_ids,
+    llm_route,
+    confidence_score,
+):
     try:
         from app.workers.tasks import run_judge_evaluation
         run_judge_evaluation.delay(
             query_id=query_id,
+            audit_log_id=audit_log_id,
             query=query,
             context=context,
+            graph_context=graph_context,
             answer=answer,
             user_id=user_id,
             domain_ids=domain_ids,
@@ -163,3 +296,31 @@ def _fire_judge_task(query_id, query, context, answer, user_id, domain_ids, llm_
         )
     except Exception:
         pass  # never block the response for judge failures
+
+def _build_judge_context(chunks: list[dict]) -> list[dict]:
+    return [
+        {
+            "source_number": index,
+            "chunk_id": str(c.get("id", "")),
+            "document_title": c.get("document_title", "Unknown"),
+            "page_number": c.get("page_number"),
+            "section": c.get("section"),
+            "domain_id": str(c.get("domain_id", "")),
+            "domain_name": c.get("domain_name", ""),
+            "relevance_score": c.get("score", 0.0),
+            "content": c.get("content", ""),
+        }
+        for index, c in enumerate(chunks, start=1)
+    ]
+
+
+def _uuid_list(values) -> list[UUID]:
+    result = []
+    for value in values:
+        if not value:
+            continue
+        try:
+            result.append(UUID(str(value)))
+        except (TypeError, ValueError):
+            continue
+    return result

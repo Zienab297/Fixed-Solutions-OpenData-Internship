@@ -8,6 +8,20 @@ class Settings(BaseSettings):
     KEYCLOAK_CLIENT_ID: str = "rag-api"
     KEYCLOAK_CLIENT_SECRET: str = "secret"
 
+    # NER microservice
+    NER_SERVICE_URL: str = "http://localhost:8001"
+    # Apache AGE (graph database)
+    AGE_HOST: str = "localhost"
+    AGE_PORT: int = 5455
+    AGE_DB: str = "agedb"
+    AGE_USER: str = "ageuser"
+    AGE_PASSWORD: str = "agepassword"
+    AGE_GRAPH_NAME: str = "rag_ontology"
+
+    # Async connection pool sizing
+    AGE_POOL_MIN_SIZE: int = 2
+    AGE_POOL_MAX_SIZE: int = 10
+
     CELERY_BROKER_URL: str = "redis://:changeme@localhost:6379/0"
     CELERY_RESULT_BACKEND: str = "redis://:changeme@localhost:6379/1"
 
@@ -18,21 +32,33 @@ class Settings(BaseSettings):
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
+    # OCR for scanned / image-heavy PDFs
+    OCR_LANG: str = "ar"
+    OCR_DEVICE: str = "gpu"
+
     # Local LLM (Ollama OpenAI-compatible endpoint)
-    LOCAL_LLM_MODEL: str = "qwen3:8b"
+    LOCAL_LLM_MODEL: str = "llama3.2:3b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
     LOCAL_LLM_MAX_TOKENS: int = 2048
     LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200
-    LOCAL_LLM_CONTEXT_CHARS: int = 4200
+    LOCAL_LLM_CONTEXT_CHARS: int = 6000
+
+    # Judge LLM (dedicated Ollama instance for async answer evaluation)
+    JUDGE_ENABLED: bool = True
+    JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
+    JUDGE_MODEL: str = "llama3.2:3b"
+    JUDGE_TIMEOUT_SECONDS: float = 60.0
+    JUDGE_SCORE_THRESHOLD: float = 0.7
+    JUDGE_CONTEXT_CHARS: int = 8000
 
     # External LLM (Gemini)
     GEMINI_API_KEY: Optional[str] = None
     API_LLM_MODEL: str = "gemini-1.5-flash"
 
     # Legacy alias kept for any code that still reads GENERATION_MODEL
-    GENERATION_MODEL: str = "qwen3:8b"
+    GENERATION_MODEL: str = "llama3.2:3b"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
@@ -50,6 +76,13 @@ class Settings(BaseSettings):
     # System admin seeded on first run
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "changeme123"
+
+    # Observability (§6.2) — per-process metrics server port for Celery
+    # workers (the FastAPI process exposes /metrics directly via
+    # prometheus-fastapi-instrumentator instead) and a label so
+    # structured JSON logs can be told apart per worker service.
+    PROMETHEUS_WORKER_METRICS_PORT: int = 9090
+    WORKER_SERVICE_NAME: str = "rag-worker"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

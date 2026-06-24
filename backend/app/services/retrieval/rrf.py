@@ -16,7 +16,7 @@ from collections import defaultdict
 
 def reciprocal_rank_fusion(
     results_lists: List[List[dict]],
-    top_k: int = 10,
+    top_k: int = 5,
     k: int = 60,
     weights: Optional[List[float]] = None,
 ) -> List[dict]:

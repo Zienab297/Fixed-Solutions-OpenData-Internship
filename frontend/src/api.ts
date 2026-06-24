@@ -1,4 +1,15 @@
-import type { Domain, IngestionJob, IngestionStatus, LoginResponse, Membership, QueryResponse, User } from "./types";
+import type {
+  Domain,
+  EvaluationStatusResponse,
+  IngestionJob,
+  IngestionStatus,
+  LoginResponse,
+  Membership,
+  ModerationItem,
+  QualityDomainSummary,
+  QueryResponse,
+  User,
+} from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
@@ -185,6 +196,47 @@ export function askQuestion(
       domain_ids: domainId ? [domainId] : [],
       domain_routes: {},
       context: [],
+    }),
+  });
+}
+
+export function fetchEvaluation(
+  token: string,
+  queryId: string,
+): Promise<EvaluationStatusResponse> {
+  return apiRequest<EvaluationStatusResponse>(`/evaluate/${queryId}`, { token });
+}
+
+export function fetchQualitySummary(
+  token: string,
+): Promise<{ domains: QualityDomainSummary[] }> {
+  return apiRequest<{ domains: QualityDomainSummary[] }>("/evaluate/quality/summary", {
+    token,
+  });
+}
+
+export function fetchModerationItems(
+  token: string,
+  statusFilter: "pending" | "accepted" | "rejected" | "all" = "pending",
+): Promise<{ items: ModerationItem[] }> {
+  return apiRequest<{ items: ModerationItem[] }>(
+    `/evaluate/moderation?status_filter=${encodeURIComponent(statusFilter)}`,
+    { token },
+  );
+}
+
+export function updateModerationItem(
+  token: string,
+  itemId: string,
+  status: "pending" | "accepted" | "rejected",
+  reviewerRationale?: string,
+): Promise<{ id: string; status: string }> {
+  return apiRequest<{ id: string; status: string }>(`/evaluate/moderation/${itemId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({
+      status,
+      reviewer_rationale: reviewerRationale,
     }),
   });
 }
