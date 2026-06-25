@@ -1,4 +1,6 @@
 import {
+  Activity,
+  BarChart3,
   Database,
   FileUp,
   LogOut,
@@ -68,6 +70,32 @@ export default function AppShell({
               >
                 <FileUp size={18} />
                 Upload
+              </NavLink>
+            )}
+
+            {/* Quality — admin and domain_admin only */}
+            {hasRole("domain_admin") && (
+              <NavLink
+                to="/quality"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
+              >
+                <BarChart3 size={18} />
+                Quality
+              </NavLink>
+            )}
+
+            {/* Observability — admin only */}
+            {hasRole("admin") && (
+              <NavLink
+                to="/observability"
+                className={({ isActive }) =>
+                  `nav-link ${isActive ? "nav-link-active" : ""}`
+                }
+              >
+                <Activity size={18} />
+                Observability
               </NavLink>
             )}
 

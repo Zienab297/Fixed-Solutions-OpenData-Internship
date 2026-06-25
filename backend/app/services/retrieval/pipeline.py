@@ -32,12 +32,14 @@ PATCHED (this revision) — wires in the rebuilt ner.py / graph_search.py:
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import GRAPH_QUERY_LATENCY, RETRIEVAL_HIT_RATE, RETRIEVAL_SIGNAL_LATENCY
 from app.services.retrieval.vector_search import VectorSearchService
 from app.services.retrieval.bm25_search import BM25SearchService
 from app.services.retrieval.graph_search import GraphSearchService
@@ -126,6 +128,8 @@ class RetrievalPipeline:
             self.ner_service.classify_query(query),
         )
 
+        print(f"DEBUG NER entities: {entities}")
+        print(f"DEBUG domain_names: {domain_names}")
         # Caller-supplied override wins over auto-detection
         lang = language or detected_lang
         has_entities = bool(entities)
@@ -136,22 +140,31 @@ class RetrievalPipeline:
         # Step 3 — Parallel signal execution
         vector_results, bm25_results, graph_results = await asyncio.gather(
             self._safe(
-                self.vector_search.search(
-                    query=query, domain_ids=domain_ids, top_k=top_k * 2
+                self._timed(
+                    "vector",
+                    self.vector_search.search(
+                        query=query, domain_ids=domain_ids, top_k=top_k * 2
+                    ),
                 ),
                 "vector",
             ),
             self._safe(
-                self.bm25_search.search(
-                    query=query, domain_ids=domain_ids,
-                    top_k=top_k * 2, db=self.db, language=lang,
+                self._timed(
+                    "bm25",
+                    self.bm25_search.search(
+                        query=query, domain_ids=domain_ids,
+                        top_k=top_k * 2, db=self.db, language=lang,
+                    ),
                 ),
                 "bm25",
             ),
             self._safe(
-                self.graph_search.search(
-                    entities=entities, domain_names=domain_names,
-                ) if has_entities and domain_names else _empty(),
+                self._timed(
+                    "graph",
+                    self.graph_search.search(
+                        entities=entities, domain_names=domain_names,
+                    ) if has_entities and domain_names else _empty(),
+                ),
                 "graph",
             ),
         )
@@ -194,6 +207,38 @@ class RetrievalPipeline:
         except Exception as exc:
             logger.warning("Signal '%s' failed: %s", name, exc)
             return []
+
+    @staticmethod
+    async def _timed(signal_name: str, coro) -> List[dict]:
+        """
+        Wraps a retrieval signal coroutine to record its latency and
+        hit/miss outcome (§6.2: retrieval hit rate; graph query latency
+        as its own metric). A raised exception is still timed and
+        recorded as a miss before re-raising, so a failing signal shows
+        up in the hit-rate ratio instead of silently disappearing from
+        the metric entirely; _safe (the caller) is what turns the
+        exception into an empty-list result for the pipeline itself.
+        """
+        start = time.perf_counter()
+        try:
+            result = await coro
+        except Exception:
+            elapsed = time.perf_counter() - start
+            RETRIEVAL_SIGNAL_LATENCY.labels(signal=signal_name).observe(elapsed)
+            if signal_name == "graph":
+                GRAPH_QUERY_LATENCY.observe(elapsed)
+            RETRIEVAL_HIT_RATE.labels(signal=signal_name, outcome="miss").inc()
+            raise
+
+        elapsed = time.perf_counter() - start
+        RETRIEVAL_SIGNAL_LATENCY.labels(signal=signal_name).observe(elapsed)
+        if signal_name == "graph":
+            GRAPH_QUERY_LATENCY.observe(elapsed)
+
+        outcome = "hit" if result else "miss"
+        RETRIEVAL_HIT_RATE.labels(signal=signal_name, outcome=outcome).inc()
+
+        return result
 
 
 # ---------------------------------------------------------------------------

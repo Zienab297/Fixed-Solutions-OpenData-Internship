@@ -32,11 +32,15 @@ class Settings(BaseSettings):
     # Ollama — local generation
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
+    # OCR for scanned / image-heavy PDFs
+    OCR_LANG: str = "ar"
+    OCR_DEVICE: str = "gpu"
+
     # Local LLM (Ollama OpenAI-compatible endpoint)
-    LOCAL_LLM_MODEL: str = "qwen3:8b"
+    LOCAL_LLM_MODEL: str = "llama3.2:3b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
-    LOCAL_LLM_MAX_TOKENS: int = 384
+    LOCAL_LLM_MAX_TOKENS: int = 2048
     LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200
     LOCAL_LLM_CONTEXT_CHARS: int = 6000
@@ -54,7 +58,7 @@ class Settings(BaseSettings):
     API_LLM_MODEL: str = "gemini-1.5-flash"
 
     # Legacy alias kept for any code that still reads GENERATION_MODEL
-    GENERATION_MODEL: str = "qwen3:8b"
+    GENERATION_MODEL: str = "llama3.2:3b"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
@@ -72,6 +76,13 @@ class Settings(BaseSettings):
     # System admin seeded on first run
     ADMIN_EMAIL: str = "admin@example.com"
     ADMIN_PASSWORD: str = "changeme123"
+
+    # Observability (§6.2) — per-process metrics server port for Celery
+    # workers (the FastAPI process exposes /metrics directly via
+    # prometheus-fastapi-instrumentator instead) and a label so
+    # structured JSON logs can be told apart per worker service.
+    PROMETHEUS_WORKER_METRICS_PORT: int = 9090
+    WORKER_SERVICE_NAME: str = "rag-worker"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
