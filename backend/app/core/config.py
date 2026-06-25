@@ -39,7 +39,15 @@ class Settings(BaseSettings):
     LOCAL_LLM_MAX_TOKENS: int = 384
     LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200
-    LOCAL_LLM_CONTEXT_CHARS: int = 4200
+    LOCAL_LLM_CONTEXT_CHARS: int = 6000
+
+    # Judge LLM (dedicated Ollama instance for async answer evaluation)
+    JUDGE_ENABLED: bool = True
+    JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
+    JUDGE_MODEL: str = "llama3.2:3b"
+    JUDGE_TIMEOUT_SECONDS: float = 120.0
+    JUDGE_SCORE_THRESHOLD: float = 0.7
+    JUDGE_CONTEXT_CHARS: int = 8000
 
     # External LLM (Gemini)
     GEMINI_API_KEY: Optional[str] = None

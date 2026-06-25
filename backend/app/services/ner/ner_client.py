@@ -10,37 +10,27 @@ Request/response shapes mirror services/ner/schemas.py exactly
 (ExtractRequest / ExtractResponse / Entity) so this client can be a
 drop-in caller without importing FastAPI.
 
-Domain label lists are loaded from the ontology JSON files at:
-    backend/app/services/graph/ontologies/medical_ontology_schema.json
-    backend/app/services/graph/ontologies/legal_ontology_schema.json
-These are the single source of truth — adding a node label there is
-all that's needed to change what GLiNER is asked to extract for that
-domain. No hardcoded label lists live in this file.
+Domain label lists are loaded from the ontology JSON files under
+    backend/app/services/graph/ontologies/
+discovered dynamically via ontology_loader.py (see that module for why
+this used to be a hardcoded dict and isn't anymore). Adding a node
+label to a domain's ontology file is all that's needed to change what
+GLiNER is asked to extract for that domain — no hardcoded label lists
+live in this file.
 """
 from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Optional
 
 import httpx
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.services.graph import ontology_loader
 
 logger = logging.getLogger("ner_client")
-
-# backend/app/services/graph/ontologies/
-# __file__ is backend/app/services/ner/ner_client.py
-#   parents[0] = .../services/ner
-#   parents[1] = .../services
-_ONTOLOGY_DIR = Path(__file__).resolve().parents[1] / "graph" / "ontologies"
-
-_ONTOLOGY_FILES = {
-    "medical": _ONTOLOGY_DIR / "medical_ontology_schema.json",
-    "legal": _ONTOLOGY_DIR / "legal_ontology_schema.json",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -83,11 +73,7 @@ def _load_ontology(domain: str) -> _DomainOntology:
     if domain in _ontology_cache:
         return _ontology_cache[domain]
 
-    path = _ONTOLOGY_FILES.get(domain)
-    if path is None:
-        raise ValueError(
-            f"Unknown domain '{domain}'. Known domains: {list(_ONTOLOGY_FILES)}"
-        )
+    path = ontology_loader.get_ontology_path(domain)
     if not path.exists():
         raise FileNotFoundError(f"Ontology file not found for domain '{domain}': {path}")
 
@@ -129,15 +115,12 @@ def get_known_domains() -> frozenset[str]:
     before using it, instead of finding out three calls later via a
     FileNotFoundError with no context about which document triggered it.
 
-    NOTE: this and triple_extractor._load_relationship_types() both read
-    the same _ONTOLOGY_FILES mapping independently. They're kept in sync
-    today because both are generated from the same dict literal, but if
-    a third ontology-consuming module appears, consider extracting
-    _ONTOLOGY_FILES and its loader into a shared ontology_loader.py that
-    both this module and triple_extractor.py import from, rather than
-    adding a third independent copy.
+    Delegates to ontology_loader, which scans the ontologies/ folder on
+    disk rather than reading a hardcoded dict — this is what lets a
+    freshly-written ontology file (from ontology_builder.py) become
+    "known" without any code change or cache-bust call.
     """
-    return frozenset(_ONTOLOGY_FILES.keys())
+    return ontology_loader.get_known_domains()
 
 
 def clear_ontology_cache() -> None:

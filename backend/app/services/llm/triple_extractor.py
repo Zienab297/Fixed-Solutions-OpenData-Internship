@@ -8,7 +8,9 @@ triple is validated against the domain's closed ontology before it's
 allowed anywhere near AGE.
 
 This replaces the old generic MENTIONED_WITH edge in extractor.py.
-Per medical_ontology_schema.json / legal_ontology_schema.json:
+Per medical_ontology_schema.json / legal_ontology_schema.json (and any
+ontology auto-built by ontology_builder.py for a new domain, which
+writes the same shape):
 
     "Treat the relationship types as the closed predicate set the
     triple-extraction LLM must map to — reject/flag any triple whose
@@ -32,23 +34,14 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import NamedTuple, Optional
 
 from pydantic import BaseModel
 
+from app.services.graph import ontology_loader
 from app.services.llm.local_llm import LocalLLMService, LocalLLMTimeoutError
 
 logger = logging.getLogger("triple_extractor")
-
-# Same ontology location ner_client.py already reads from — single source
-# of truth for both label lists and relationship_types.
-_ONTOLOGY_DIR = Path(__file__).resolve().parents[1] / "graph" / "ontologies"
-
-_ONTOLOGY_FILES = {
-    "medical": _ONTOLOGY_DIR / "medical_ontology_schema.json",
-    "legal": _ONTOLOGY_DIR / "legal_ontology_schema.json",
-}
 
 
 class RelationshipType(NamedTuple):
@@ -77,9 +70,7 @@ def _load_relationship_types(domain: str) -> _DomainRelationships:
     if domain in _relationship_cache:
         return _relationship_cache[domain]
 
-    path = _ONTOLOGY_FILES.get(domain)
-    if path is None:
-        raise ValueError(f"Unknown domain '{domain}'. Known domains: {list(_ONTOLOGY_FILES)}")
+    path = ontology_loader.get_ontology_path(domain)
     if not path.exists():
         raise FileNotFoundError(f"Ontology file not found for domain '{domain}': {path}")
 
