@@ -18,6 +18,7 @@ beautifulsoup4==4.12.3
 billiard==4.2.4
 blis==1.3.3
 cachetools==7.1.4
+camelot-py[cv]
 catalogue==2.0.10
 celery==5.4.0
 certifi==2026.5.20
@@ -41,6 +42,7 @@ dataclasses-json==0.6.7
 decorator==5.3.1
 distro==1.9.0
 dnspython==2.8.0
+docx2txt
 ecdsa==0.19.2
 einops==0.8.2
 email-validator==2.3.0
@@ -115,9 +117,6 @@ nvidia-cusolver-cu12==11.7.1.2
 nvidia-cusparse-cu12==12.5.4.2
 nvidia-nvjitlink-cu12==12.9.86
 onnxruntime==1.27.0
-openai==1.109.1
-opencv-contrib-python==4.10.0.84
-opencv-python==4.10.0.84
 opencv-python-headless==4.11.0.86
 openpyxl==3.1.2
 opt-einsum==3.3.0
@@ -181,11 +180,12 @@ rich-toolkit==0.20.1
 rsa==4.9.1
 ruamel.yaml==0.19.1
 safetensors==0.7.0
-scikit-learn==1.9.0
-scipy==1.17.1
+scikit-learn==1.7.2
+scipy==1.16.2
 sentence-transformers==3.0.0
 sentencepiece==0.2.1
 shapely==2.1.2
+setuptools
 shellingham==1.5.4
 six==1.17.0
 smart_open==7.6.1
@@ -197,7 +197,6 @@ spacy-loggers==1.0.5
 SQLAlchemy==2.0.30
 srsly==2.5.3
 starlette==0.37.2
-surya-ocr==0.20.0
 svgwrite==1.4.3
 sympy==1.14.0
 tbb==2021.13.1
@@ -214,7 +213,6 @@ Tree==0.2.4
 typer==0.25.1
 typer-slim==0.24.0
 typing-inspect==0.9.0
-typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.2
 tzlocal==5.3.1
@@ -228,6 +226,7 @@ watchfiles==1.2.0
 wcwidth==0.8.1
 weasel==0.4.3
 websockets==16.0
+wheel==0.46.3
 wrapt==2.2.1
 xx_ent_wiki_sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl#sha256=6f3c4b853852ea9e9d2dc76cc950dddb10a7e4c42d813308caefe6c5e8be2f0a
 xxhash==3.7.0
@@ -265,7 +264,7 @@ opencv-python==4.13.0.92
 opt-einsum==3.3.0
 ormsgpack==1.12.2
 paddleocr==3.7.0
-paddlepaddle-gpu==3.2.1
+paddlepaddle-gpu==2.6.2
 paddlex==3.7.1
 premailer==3.10.0
 prettytable==3.17.0
@@ -277,7 +276,6 @@ PyMuPDF==1.27.2.3
 python-bidi==0.6.10
 ruamel.yaml==0.19.1
 sentencepiece==0.2.1
-setuptools==82.0.1
 shapely==2.1.2
 wheel==0.46.3
 psycopg==3.3.4

@@ -11,6 +11,7 @@ dist/
 build/
 .coverage
 htmlcov/
+.venv311/
 
 # Node
 node_modules/

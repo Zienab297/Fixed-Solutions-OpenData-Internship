@@ -8,61 +8,40 @@ SessionLocal from database.py.  All DB operations here are synchronous.
 Flow
 ----
 1. Set document.ingest_status = 'processing'
-2. Extract text blocks from the file bytes
-3. Fetch domain chunk_size / chunk_overlap settings
-4. Chunk the text
-5. Embed each chunk in small batches (via Ollama)
-6. INSERT rows into rag.chunks
-7. Upsert embeddings into Qdrant
-8. Set document.ingest_status = 'completed'
-9. On any error → set status = 'failed', re-raise so Celery can retry
+2. Extract + chunk via process_file() (PDF/CSV/DOCX → LangChain Documents)
+3. Embed each chunk in small batches (via Ollama)
+4. INSERT rows into rag.chunks
+5. Upsert embeddings into Qdrant
+6. Set document.ingest_status = 'completed'
+7. On any error → set status = 'failed', re-raise so Celery can retry
 """
 from __future__ import annotations
 
-import json
 import logging
 from uuid import UUID
 
-from sqlalchemy import select, text, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.db.models import Chunk as ChunkModel, Document, Domain
-from app.services.ingestion.chunker import ChunkerService
-from app.services.ingestion.extractors import ExtractedBlock, extract_document
+from app.services.ingestion.chunker import process_file
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Embedding batch size: keep small enough for large CSV-derived chunks on CPU.
-# ---------------------------------------------------------------------------
 _EMBED_BATCH_SIZE = 5
-_EMBED_TIMEOUT_SECONDS = 120.0
+_EMBED_TIMEOUT_SECONDS = 500.0
 
 
-def _embed_texts_sync(texts: list[str]) -> tuple[list[list[float]], list[bool]]:
+def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
     """
     Call Ollama /api/embed synchronously in small batches.
-
-    Why batched?
-    Ollama processes embeddings sequentially internally. Sending 200 chunks
-    in a single 120 s request means the worker is blocked the whole time and
-    any transient failure forces a full retry. Splitting into batches of
-    _EMBED_BATCH_SIZE gives ~1-2 s per call, makes progress visible in logs,
-    and lets the worker recover cheaply on partial failure.
-
-    Falls back to zero vectors per batch if Ollama is unreachable (dev/test
-    safety) so DB writes still succeed and Qdrant can be re-indexed later.
-
-    Returns (embeddings, failed_flags) where failed_flags[i] is True if
-    embeddings[i] is a zero-vector placeholder that needs re-embedding.
     """
     import httpx
 
     url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/embed"
     all_embeddings: list[list[float]] = []
-    failed_indices: list[bool] = []
 
     for batch_start in range(0, len(texts), _EMBED_BATCH_SIZE):
         batch = texts[batch_start : batch_start + _EMBED_BATCH_SIZE]
@@ -75,7 +54,6 @@ def _embed_texts_sync(texts: list[str]) -> tuple[list[list[float]], list[bool]]:
             response.raise_for_status()
             batch_embeddings = response.json()["embeddings"]
             all_embeddings.extend(batch_embeddings)
-            failed_indices.extend([False] * len(batch))
             logger.debug(
                 "Embedded batch %d-%d / %d",
                 batch_start,
@@ -91,14 +69,9 @@ def _embed_texts_sync(texts: list[str]) -> tuple[list[list[float]], list[bool]]:
                 exc,
             )
             all_embeddings.extend([[0.0] * settings.EMBEDDING_DIMENSION for _ in batch])
-            failed_indices.extend([True] * len(batch))
 
-    return all_embeddings, failed_indices
+    return all_embeddings
 
-
-# ---------------------------------------------------------------------------
-# Qdrant upsert helper
-# ---------------------------------------------------------------------------
 
 def _upsert_chunks_to_qdrant(
     domain_id: UUID,
@@ -106,16 +79,6 @@ def _upsert_chunks_to_qdrant(
     embeddings: list[list[float]],
     document_title: str,
 ) -> None:
-    """
-    Upsert chunk embeddings into the domain's Qdrant collection.
-
-    Collection name mirrors VectorSearchService._collection_name():
-      domain_<uuid_with_underscores>
-
-    Each point stores the metadata needed for retrieval so callers
-    never have to round-trip back to Postgres for basic fields.
-    Falls back gracefully if Qdrant is unreachable (dev / test safety).
-    """
     from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct, VectorParams, Distance
 
@@ -124,7 +87,6 @@ def _upsert_chunks_to_qdrant(
     try:
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
-        # Ensure collection exists (idempotent).
         try:
             client.create_collection(
                 collection_name=collection,
@@ -132,7 +94,7 @@ def _upsert_chunks_to_qdrant(
             )
             logger.info("Qdrant collection created: %s", collection)
         except Exception:
-            pass  # Collection already exists — safe to continue.
+            pass
 
         points = [
             PointStruct(
@@ -150,7 +112,6 @@ def _upsert_chunks_to_qdrant(
             for i in range(len(chunk_rows))
         ]
 
-        # Upsert in batches of 100 to avoid large payloads
         for start in range(0, len(points), 100):
             client.upsert(
                 collection_name=collection,
@@ -172,19 +133,13 @@ def _upsert_chunks_to_qdrant(
         )
 
 
-# ---------------------------------------------------------------------------
-# DocumentProcessor
-# ---------------------------------------------------------------------------
-
 class DocumentProcessor:
     """
     Synchronous processor used inside Celery tasks.
-    Opens its own DB session so it's fully independent of the FastAPI
-    async session lifecycle.
     """
 
     def __init__(self):
-        self.chunker = ChunkerService()
+        pass  # process_file() handles extraction + chunking — no chunker needed
 
     def process(
         self,
@@ -193,10 +148,6 @@ class DocumentProcessor:
         file_content: bytes,
         filename: str,
     ) -> None:
-        """
-        Entry point called by the Celery task.
-        All exceptions propagate so the task can retry.
-        """
         doc_uuid = UUID(document_id)
         domain_uuid = UUID(domain_id)
 
@@ -211,10 +162,6 @@ class DocumentProcessor:
                     logger.error("Could not mark document as failed: %s", inner)
                 raise
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     def _process(
         self,
         db: Session,
@@ -227,79 +174,74 @@ class DocumentProcessor:
         self._set_status(db, document_id, "processing")
         db.commit()
 
-        # 2. Fetch domain settings (chunk_size / chunk_overlap)
+        # 2. Fetch domain (kept for future per-domain config)
         domain = db.execute(
             select(Domain).where(Domain.id == domain_id)
-        ).scalar_one_or_none()
-        chunk_size = domain.chunk_size if domain else 512
-        chunk_overlap = domain.chunk_overlap if domain else 64
+        ).scalar_one_or_none()  # noqa: F841
 
-        # 3. Extract text blocks
-        document = db.execute(
-            select(Document).where(Document.id == document_id)
-        ).scalar_one_or_none()
+        # 3. Extract + chunk via process_file() — needs a real path on disk
+        import os
+        import tempfile
 
-        if document is None:
-            raise ValueError(
-                f"document_id={document_id} not found in rag.documents — "
-                "was process_document() enqueued before the Document row "
-                "was committed?"
+        suffix = "_" + filename
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        try:
+            lc_documents = process_file(tmp_path)
+        except ValueError as exc:
+            logger.warning(
+                "document_id=%s: rejected unsupported format for %s — %s",
+                document_id, filename, exc,
             )
+            self._set_status(db, document_id, "failed")
+            db.commit()
+            return
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except PermissionError:
+                logger.warning(
+                    "Could not delete temp file %s (still locked by another process). "
+                    "It will be cleaned up later by the OS temp folder cleanup.",
+                    tmp_path,
+                )
 
-        source_type = document.source_type
-        blocks = extract_document(filename, file_content, source_type)
-        ocr_used = _blocks_used_ocr(blocks)
-
-        if not blocks or all(not block.text.strip() for block in blocks):
+        if not lc_documents or all(not d.page_content.strip() for d in lc_documents):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
-            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
+            self._set_status(db, document_id, "completed")
             db.commit()
             return
 
-        # 4. Chunk each extracted block
+        # 4. Build chunk data from LangChain Document objects
         all_chunks_data: list[dict] = []
-        for block in blocks:
-            if not block.text.strip():
+        for lc_doc in lc_documents:
+            if not lc_doc.page_content.strip():
                 continue
 
-            if block.metadata.get("source_type") == "csv":
-                all_chunks_data.append(
-                    {
-                        "content": block.text,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": block.page_number,
-                        "section": block.section,
-                        "metadata": _merge_metadata(block, None),
-                    }
-                )
-                continue
+            metadata = lc_doc.metadata or {}
+            page_number = metadata.get("page", metadata.get("page_number"))
+            section = metadata.get("section", metadata.get("row"))
 
-            chunks = self.chunker.chunk_text(
-                block.text,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                page_number=block.page_number,
-                section=block.section,
+            all_chunks_data.append(
+                {
+                    "content": lc_doc.page_content,
+                    "chunk_index": len(all_chunks_data),
+                    "page_number": page_number,
+                    "section": str(section) if section is not None else None,
+                    "metadata": metadata,
+                }
             )
-            for c in chunks:
-                all_chunks_data.append(
-                    {
-                        "content": c.content,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": c.page_number,
-                        "section": c.section,
-                        "metadata": _merge_metadata(block, c.metadata),
-                    }
-                )
 
         if not all_chunks_data:
-            self._set_status(db, document_id, "completed", ocr_used=ocr_used)
+            self._set_status(db, document_id, "completed")
             db.commit()
             return
 
-        # 5. Embed in small batches (fixes the 120 s single-call bottleneck)
+        # 5. Embed in small batches
         texts = [c["content"] for c in all_chunks_data]
         logger.info(
             "document_id=%s: embedding %d chunks in batches of %d",
@@ -307,18 +249,11 @@ class DocumentProcessor:
             len(texts),
             _EMBED_BATCH_SIZE,
         )
-        embeddings, embed_failed = _embed_texts_sync(texts)
+        embeddings = _embed_texts_sync(texts)
 
         # 6. Build and INSERT Chunk ORM rows
         chunk_rows = []
-        for i, chunk_data in enumerate(all_chunks_data):
-            metadata = chunk_data["metadata"]
-            if embed_failed[i]:
-                # Mark so a later job can find and re-embed these chunks
-                # instead of silently keeping a dead zero-vector forever.
-                metadata = dict(metadata)
-                metadata["needs_reembed"] = True
-
+        for chunk_data in all_chunks_data:
             row = ChunkModel(
                 document_id=document_id,
                 domain_id=domain_id,
@@ -327,33 +262,14 @@ class DocumentProcessor:
                 page_number=chunk_data["page_number"],
                 section=chunk_data["section"],
                 embedding_model=settings.EMBEDDING_MODEL,
-                metadata_=metadata,
+                metadata_=chunk_data["metadata"],
             )
             chunk_rows.append(row)
 
         db.add_all(chunk_rows)
-        db.flush()  # assign IDs before Qdrant upsert
-
-        if any(embed_failed):
-            logger.warning(
-                "document_id=%s: %d/%d chunks stored with zero vectors "
-                "(needs_reembed=True) due to embedding failures",
-                document_id,
-                sum(embed_failed),
-                len(embed_failed),
-            )
+        db.flush()
 
         # 7. Upsert embeddings into Qdrant
-        # 7. Persist structured CSV rows for deterministic table QA.
-        if source_type == "csv":
-            _replace_structured_table_rows(
-                db=db,
-                document_id=document_id,
-                domain_id=domain_id,
-                chunk_rows=chunk_rows,
-            )
-
-        # 8. Upsert embeddings into Qdrant
         _upsert_chunks_to_qdrant(
             domain_id=domain_id,
             chunk_rows=chunk_rows,
@@ -361,8 +277,8 @@ class DocumentProcessor:
             document_title=filename,
         )
 
-        # 9. Mark completed
-        self._set_status(db, document_id, "completed", ocr_used=ocr_used)
+        # 8. Mark completed
+        self._set_status(db, document_id, "completed")
         db.commit()
         logger.info(
             "document_id=%s: ingested %d chunks from %s",
@@ -372,26 +288,15 @@ class DocumentProcessor:
         )
 
     @staticmethod
-    def _set_status(
-        db: Session,
-        document_id: UUID,
-        status: str,
-        *,
-        ocr_used: bool | None = None,
-    ) -> None:
-        values = {"ingest_status": status}
-        if ocr_used is not None:
-            values["ocr_used"] = ocr_used
-
+    def _set_status(db: Session, document_id: UUID, status: str) -> None:
         db.execute(
             update(Document)
             .where(Document.id == document_id)
-            .values(**values)
+            .values(ingest_status=status)
         )
 
     @staticmethod
     def _mark_failed(db: Session, document_id: UUID) -> None:
-        """Safe status downgrade — only moves processing→failed."""
         db.execute(
             update(Document)
             .where(
@@ -400,98 +305,3 @@ class DocumentProcessor:
             )
             .values(ingest_status="failed")
         )
-
-
-def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
-    metadata = dict(block.metadata or {})
-    metadata.update(chunk_metadata or {})
-    return metadata
-
-
-def _blocks_used_ocr(blocks: list[ExtractedBlock]) -> bool:
-    return any(
-        block.metadata.get("ocr_used") is True
-        or block.metadata.get("block_type") == "ocr"
-        for block in blocks
-    )
-
-
-def _replace_structured_table_rows(
-    db: Session,
-    document_id: UUID,
-    domain_id: UUID,
-    chunk_rows: list[ChunkModel],
-) -> None:
-    _ensure_table_rows_schema(db)
-
-    db.execute(
-        text("DELETE FROM rag.table_rows WHERE document_id = :document_id"),
-        {"document_id": str(document_id)},
-    )
-
-    for chunk in chunk_rows:
-        rows = (chunk.metadata_ or {}).get("rows") or []
-        if not isinstance(rows, list):
-            continue
-
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            values = row.get("values")
-            if not isinstance(values, dict):
-                continue
-            row_number = row.get("row_number")
-            if not isinstance(row_number, int):
-                continue
-
-            db.execute(
-                text(
-                    """
-                    INSERT INTO rag.table_rows (
-                        document_id, domain_id, chunk_id, row_number, row_data
-                    )
-                    VALUES (
-                        :document_id,
-                        :domain_id,
-                        :chunk_id,
-                        :row_number,
-                        CAST(:row_data AS jsonb)
-                    )
-                    ON CONFLICT (document_id, row_number)
-                    DO UPDATE SET
-                        domain_id = EXCLUDED.domain_id,
-                        chunk_id = EXCLUDED.chunk_id,
-                        row_data = EXCLUDED.row_data
-                    """
-                ),
-                {
-                    "document_id": str(document_id),
-                    "domain_id": str(domain_id),
-                    "chunk_id": str(chunk.id),
-                    "row_number": row_number,
-                    "row_data": json.dumps({str(k): str(v) for k, v in values.items()}),
-                },
-            )
-
-
-def _ensure_table_rows_schema(db: Session) -> None:
-    db.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS rag.table_rows (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                document_id UUID NOT NULL REFERENCES rag.documents(id) ON DELETE CASCADE,
-                domain_id UUID NOT NULL REFERENCES rag.domains(id) ON DELETE CASCADE,
-                chunk_id UUID REFERENCES rag.chunks(id) ON DELETE SET NULL,
-                row_number INTEGER NOT NULL,
-                row_data JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE (document_id, row_number)
-            )
-            """
-        )
-    )
-    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_domain ON rag.table_rows(domain_id)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_document ON rag.table_rows(document_id)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_chunk ON rag.table_rows(chunk_id)"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS idx_table_rows_data_gin ON rag.table_rows USING GIN (row_data)"))
