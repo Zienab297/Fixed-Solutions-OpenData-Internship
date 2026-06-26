@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # Local LLM (Ollama OpenAI-compatible endpoint)
     LOCAL_LLM_MODEL: str = "llama3.2:3b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
-    LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
+    LOCAL_LLM_TIMEOUT_SECONDS: float = 500.0
     LOCAL_LLM_MAX_TOKENS: int = 2048
     LOCAL_LLM_CONTEXT_CHUNKS: int = 3
     LOCAL_LLM_CHUNK_CHARS: int = 1200

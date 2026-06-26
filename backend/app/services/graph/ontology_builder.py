@@ -94,9 +94,12 @@ async def ensure_ontology(domain: str, sample_texts: list[str]) -> bool:
         try:
             proposal = await _propose_ontology(domain, sample_texts)
             _validate_proposal(domain, proposal)
+            await _validate_domain_relevance(domain, sample_texts, proposal)
         except OntologyBuildError as exc:
             outcome = "llm_timeout" if "timed out" in str(exc) else (
-                "llm_invalid_json" if "valid JSON" in str(exc) else "validation_failed"
+                "llm_invalid_json" if "valid JSON" in str(exc) else (
+                    "domain_mismatch" if "does not appear to match" in str(exc) else "validation_failed"
+                )
             )
             ONTOLOGY_BUILD_ATTEMPTS_TOTAL.labels(domain=domain, outcome=outcome).inc()
             ONTOLOGY_BUILD_DURATION_SECONDS.labels(domain=domain).observe(time.monotonic() - build_start)
@@ -270,3 +273,71 @@ def _validate_proposal(domain: str, proposal: Any) -> None:
                 f"Ontology proposal for '{domain}': relationship {rel['relationship']!r} references "
                 f"a from/to label not present in node_labels ({rel['from']!r} -> {rel['to']!r})."
             )
+
+
+# ---------------------------------------------------------------------------
+# Domain-relevance sanity check
+# ---------------------------------------------------------------------------
+# This exists because of a real incident: a document was ingested under a
+# domain_id named "computer science", but the document's own content was
+# medical (oncology). _propose_ontology faithfully built a schema from
+# what it was given — Physician/Tumor/MammogramResult — and _validate_proposal
+# happily passed it, because structurally it WAS a valid ontology. It just
+# had nothing to do with the domain name it got filed under. Once written,
+# that file is permanent (see module docstring) and silently breaks every
+# real document in that domain afterward (NER returns empty entity lists
+# with no obvious error — see ner_client debug logs).
+#
+# This check can't catch a mis-tagged domain_id itself (that's an
+# ingestion-side bug, not this module's to fix), but it can catch the
+# downstream symptom: a proposal whose own content doesn't plausibly
+# relate to the domain name it's about to be filed under. Cheap, fuzzy,
+# and deliberately conservative — false negatives (lets a bad one through)
+# are far less costly than false positives (blocks a legitimate domain),
+# so on any ambiguity this lets the build proceed and just logs a warning.
+_RELEVANCE_PROMPT = """You will be shown a domain name and a proposed list of entity types for a knowledge graph ontology in that domain.
+
+Domain name: "{domain}"
+
+Proposed entity types: {labels}
+
+Does this list of entity types plausibly belong to the domain "{domain}"? A reasonable subject-matter expert would expect ontology entities for "{domain}" to look roughly like this list, even if not an exact match.
+
+Respond with ONLY one word: "yes" or "no"."""
+
+
+async def _validate_domain_relevance(
+    domain: str, sample_texts: list[str], proposal: dict[str, Any]
+) -> None:
+    labels = [entry["label"] for entry in proposal.get("node_labels", [])]
+    prompt = _RELEVANCE_PROMPT.format(domain=domain, labels=", ".join(labels))
+
+    try:
+        raw = await _llm.generate(prompt)
+    except LocalLLMTimeoutError:
+        # Don't fail the whole build over a sanity-check timeout — log
+        # and let it through; this check is a safety net, not a gate
+        # the core pipeline should be blocked by if the LLM is slow.
+        logger.warning(
+            "ontology_builder: domain-relevance check timed out for '%s' — proceeding without it.",
+            domain,
+        )
+        return
+
+    answer = raw.strip().lower()
+    if answer.startswith("yes"):
+        return
+    if answer.startswith("no"):
+        raise OntologyBuildError(
+            f"Ontology proposal for domain '{domain}' does not appear to match the domain name "
+            f"(proposed labels: {labels!r}). This usually means the document that triggered this "
+            f"build was ingested under the wrong domain_id — check which document supplied "
+            f"sample_texts for this build, not the ontology_builder prompt itself."
+        )
+    # Ambiguous/garbled response from the relevance check itself — don't
+    # block a legitimate domain over a flaky one-word classifier reply.
+    logger.warning(
+        "ontology_builder: domain-relevance check for '%s' returned an unrecognized answer (%r) — "
+        "proceeding without blocking.",
+        domain, raw[:200],
+    )

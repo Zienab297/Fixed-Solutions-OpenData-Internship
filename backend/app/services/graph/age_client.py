@@ -164,7 +164,50 @@ async def get_pool() -> AsyncConnectionPool:
                 settings.AGE_PORT,
             )
             _pool = pool
+            # Bootstrap the graph itself. AGE does not auto-create the
+            # graph a cypher() call references — every prior version of
+            # this client assumed `settings.AGE_GRAPH_NAME` already
+            # existed (created once by hand via scripts/seed_graph.py),
+            # which silently breaks the moment someone points this at a
+            # fresh Postgres instance (new dev machine, new CI db, a
+            # docker volume reset, etc.) with a confusing
+            # `InvalidSchemaName: graph "..." does not exist` deep in a
+            # Celery retry loop instead of a clear startup failure.
+            await ensure_graph_exists(pool, settings.AGE_GRAPH_NAME)
     return _pool
+
+
+async def ensure_graph_exists(pool: AsyncConnectionPool, graph_name: str) -> None:
+    """
+    Idempotent: create the AGE graph if it doesn't already exist.
+    Safe to call on every pool startup — checks ag_catalog.ag_graph
+    first rather than calling create_graph() unconditionally, since
+    create_graph() raises if the graph is already there and we don't
+    want every worker restart to log a spurious error.
+
+    Validated against the same identifier pattern as graph_name
+    elsewhere in this module (_GRAPH_NAME_RE) before being interpolated
+    into SQL — create_graph() takes its name as a regular SQL function
+    argument (bindable as a parameter, unlike cypher()'s graph name),
+    so this is parameterized properly rather than string-formatted.
+    """
+    if not _GRAPH_NAME_RE.match(graph_name):
+        raise ValueError(f"Invalid graph_name: {graph_name!r}")
+
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s;",
+                (graph_name,),
+            )
+            exists = await cur.fetchone()
+            if exists:
+                logger.debug("AGE graph '%s' already exists.", graph_name)
+                return
+            logger.info("AGE graph '%s' not found — creating it now.", graph_name)
+            await cur.execute("SELECT create_graph(%s);", (graph_name,))
+        await conn.commit()
+        logger.info("AGE graph '%s' created.", graph_name)
 
 
 async def close_pool() -> None:

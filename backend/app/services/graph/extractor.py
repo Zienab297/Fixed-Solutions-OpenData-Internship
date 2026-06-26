@@ -51,6 +51,22 @@ Design notes (see NER_KG_Implementation_Roadmap.md Phase 5 for full context):
   transaction, so a failure partway through doesn't leave a half-written
   document in the graph.
 
+- NEW-DOMAIN ONTOLOGY AUTO-BUILD (added alongside the ontology_loader /
+  ontology_builder refactor): before _resolve_domain_name's strict check
+  (below) is allowed to raise on an unrecognized domain, extract_and_store
+  now checks ontology_loader.get_known_domains() itself and, on a miss,
+  calls ontology_builder.ensure_ontology() with this document's own
+  chunks as the sample text. That call proposes a schema via the local
+  LLM, validates it, and writes a new `<key>_ontology_schema.json` under
+  services/graph/ontologies/ — after which the existing strict resolve
+  below succeeds normally, with zero other change to this module's
+  control flow. If the build fails for any reason (LLM timeout, invalid
+  JSON, failed validation), ensure_ontology raises OntologyBuildError,
+  which is deliberately NOT caught here — same fail-loud philosophy as
+  _resolve_domain_name's existing ValueError, this should abort the
+  document's extraction and surface clearly rather than silently
+  extracting against no ontology at all.
+
 - REQUIRED ONE-TIME (AND ONE-TIME-PER-NEW-LABEL) DDL — node_uuid lookup
   speedup: _merge_typed_relationships below does `MATCH (a {node_uuid:
   $x})` with no label, since node_uuid is meant to be globally unique
@@ -64,13 +80,14 @@ Design notes (see NER_KG_Implementation_Roadmap.md Phase 5 for full context):
   shared table), so this needs a GIN index on EVERY per-label table,
   not a single statement on a parent table.
   Run scripts/index_node_uuid.py after scripts/seed_graph.py, and again
-  any time a new vertex label is introduced (Phase 8 ontology updates):
-  it discovers every existing label from AGE's own catalog and indexes
-  each one, idempotently. See that script's docstring for the full
-  reasoning, including two earlier wrong approaches it had to rule out
-  along the way — this is schema-maintenance DDL, not per-document
-  data, so it does not belong inside this module or inside the Celery
-  task that calls it.
+  any time a new vertex label is introduced (Phase 8 ontology updates,
+  OR a brand-new domain's first auto-built ontology — same requirement,
+  same script): it discovers every existing label from AGE's own catalog
+  and indexes each one, idempotently. See that script's docstring for
+  the full reasoning, including two earlier wrong approaches it had to
+  rule out along the way — this is schema-maintenance DDL, not
+  per-document data, so it does not belong inside this module or inside
+  the Celery task that calls it.
 """
 from __future__ import annotations
 
@@ -80,7 +97,7 @@ from uuid import UUID, uuid4
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.db.models import Chunk as ChunkModel
-from app.services.graph import age_client
+from app.services.graph import age_client, ontology_builder, ontology_loader
 from app.services.llm import triple_extractor
 from app.services.llm.triple_extractor import CandidateEntity
 from app.services.ner import ner_client
@@ -88,6 +105,12 @@ from app.services.ner import ner_client
 logger = logging.getLogger("graph_extractor")
 
 _NER_THRESHOLD = 0.4
+
+# How many chunks from a brand-new domain's first document to hand the
+# LLM as ontology-proposal sample text. Kept small and separate from
+# extraction proper — this is a one-time schema sketch, not full-document
+# analysis, see ontology_builder.py for the prompt itself.
+_ONTOLOGY_SAMPLE_CHUNK_COUNT = 5
 
 
 class GraphExtractor:
@@ -101,6 +124,8 @@ class GraphExtractor:
         if not chunks:
             logger.info("document_id=%s: no chunks found, nothing to extract.", document_id)
             return
+
+        await self._ensure_domain_ontology(domain_id, chunks)
 
         domain = self._resolve_domain_name(domain_id, chunks)
         schema_version = ner_client.get_domain_schema_version(domain)
@@ -181,6 +206,57 @@ class GraphExtractor:
         logger.info("document_id=%s: extraction complete.", document_id)
 
     # ------------------------------------------------------------------
+    # New-domain ontology auto-build
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def _ensure_domain_ontology(domain_id: str, chunks: list[ChunkModel]) -> None:
+        """
+        Runs before _resolve_domain_name's strict check. Guesses the
+        ontology key the same way _resolve_domain_name does (display
+        name, lowercased/stripped) — duplicating that one line rather
+        than refactoring _resolve_domain_name's signature, so its
+        existing strict behavior for every other caller is untouched.
+
+        On a miss (key not in ontology_loader.get_known_domains()),
+        hands ontology_builder this document's own first few chunks as
+        sample text and lets it build + write the ontology file. After
+        this returns, _resolve_domain_name's own lookup of
+        ner_client.get_known_domains() (which now reads through to the
+        same on-disk scan) will see the new file and succeed normally —
+        no other code path changes.
+
+        Deliberately does not catch ontology_builder.OntologyBuildError:
+        if the LLM proposal fails or produces an invalid schema, this
+        document's extraction should abort loudly here, not silently
+        fall through to _resolve_domain_name's ValueError with no
+        context about why the domain is still unknown.
+        """
+        with SessionLocal() as db:
+            from sqlalchemy import select
+            from app.models.db.models import Domain as DomainModel
+            domain_uuid = UUID(domain_id)
+            domain = db.execute(
+                select(DomainModel).where(DomainModel.id == domain_uuid)
+            ).scalar_one_or_none()
+        if domain is None:
+            # Let _resolve_domain_name raise its own clear "not found" error
+            # right after this returns, rather than duplicating that check.
+            return
+
+        guessed_key = domain.name.strip().lower()
+        if guessed_key in ontology_loader.get_known_domains():
+            return
+
+        sample_texts = [c.content for c in chunks[:_ONTOLOGY_SAMPLE_CHUNK_COUNT]]
+        logger.info(
+            "domain_id=%s (name=%r): no ontology file for key %r yet — "
+            "building one from this document's first %d chunk(s).",
+            domain_id, domain.name, guessed_key, len(sample_texts),
+        )
+        await ontology_builder.ensure_ontology(guessed_key, sample_texts)
+
+    # ------------------------------------------------------------------
     # Chunk fetching (sync — matches document_processor.py's write path)
     # ------------------------------------------------------------------
 
@@ -220,6 +296,14 @@ class GraphExtractor:
         fail loudly, here, with the exact domain_id/display-name/guessed-
         key all named in the error — not three frames deep in a different
         module with no context about which document or domain triggered it.
+
+        NOTE: as of the ontology auto-build addition, extract_and_store
+        calls _ensure_domain_ontology() before this method, which already
+        builds a missing ontology file for the common new-domain case. So
+        in practice this should now only ever raise for a genuine
+        display-name mismatch (e.g. a typo, or a Domain that was never
+        meant to have an ontology) — not for "domain is simply new", which
+        _ensure_domain_ontology already handles.
 
         This still doesn't replace a real mapping table if your Domain
         model ever needs admin-chosen domain names that don't resemble

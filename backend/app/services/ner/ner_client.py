@@ -136,6 +136,34 @@ def clear_ontology_cache() -> None:
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
 _MAX_RETRIES = 2
 
+import re
+
+_PASCAL_SPLIT_RE = re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _humanize_label(label: str) -> str:
+    """
+    Convert a PascalCase ontology label like "MachineLearningAlgorithm"
+    into a natural-language phrase like "machine learning algorithm".
+
+    The NER service runs a zero-shot model (GLiNER-style): it matches
+    label *strings* against text semantically, and it was trained on
+    natural-language label phrases, not concatenated identifiers. A
+    raw PascalCase label like "MachineLearningAlgorithm" essentially
+    never appears in its training distribution, so it silently fails
+    to match anything — no error, just an empty entities list, which
+    is exactly the symptom this was added to fix (see incident notes:
+    every domain's /extract call returning entities=[] regardless of
+    ontology content).
+
+    PascalCase labels are the right format for AGE node labels (Cypher
+    identifiers can't contain spaces) and for the ontology JSON files,
+    so this humanizes only at the NER-call boundary rather than
+    changing the label format everywhere — see _restore_original_label
+    for the reverse mapping applied to the response.
+    """
+    return " ".join(_PASCAL_SPLIT_RE.split(label)).lower()
+
 
 async def extract_entities(
     text: str,
@@ -154,9 +182,17 @@ async def extract_entities(
     """
     labels = get_domain_labels(domain)
 
+    # Send the model natural-language label phrases, not raw PascalCase
+    # identifiers — see _humanize_label. Keep a reverse map (lowercased
+    # humanized phrase -> original ontology label) so the entities we
+    # return still carry the exact label string callers expect (the one
+    # that matches an AGE node label / ontology node_labels entry).
+    humanized_to_original = {_humanize_label(label): label for label in labels}
+    humanized_labels = list(humanized_to_original.keys())
+
     payload = {
         "text": text,
-        "labels": labels,
+        "labels": humanized_labels,
         "threshold": threshold,
     }
 
@@ -170,7 +206,24 @@ async def extract_entities(
                 )
             response.raise_for_status()
             parsed = ExtractResponse.model_validate(response.json())
-            return parsed.entities
+
+            restored: list[Entity] = []
+            for entity in parsed.entities:
+                original_label = humanized_to_original.get(entity.label.strip().lower())
+                if original_label is None:
+                    # The model returned a label we didn't ask for /
+                    # can't map back — drop it rather than passing a
+                    # bogus label downstream into AGE node creation,
+                    # but log it since it points at a label-matching
+                    # bug worth knowing about (e.g. the NER service
+                    # echoing back a fuzzy/near-match label string).
+                    logger.warning(
+                        "NER service returned an unmapped label %r for domain '%s' — dropping entity %r.",
+                        entity.label, domain, entity.text,
+                    )
+                    continue
+                restored.append(entity.model_copy(update={"label": original_label}))
+            return restored
 
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             last_exc = exc
