@@ -1,3 +1,5 @@
+import re
+
 import httpx
 
 from app.core.config import settings
@@ -17,6 +19,8 @@ class LocalLLMService:
 
         selected_model = model or settings.LOCAL_LLM_MODEL
         timeout = httpx.Timeout(settings.LOCAL_LLM_TIMEOUT_SECONDS, connect=10.0)
+        print(f"LOCAL_LLM PROMPT LENGTH: {len(prompt)} chars", flush=True)
+
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -27,10 +31,16 @@ class LocalLLMService:
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.0,
                         "max_tokens": settings.LOCAL_LLM_MAX_TOKENS,
+                        "options": {"num_ctx": 4096},
                     },
                 )
+                print(f"LOCAL_LLM STATUS: {response.status_code}", flush=True)
+                print(f"LOCAL_LLM BODY: {response.text[:1000]}", flush=True)
+
                 response.raise_for_status()
-                return response.json()["choices"][0]["message"]["content"]
+                content = response.json()["choices"][0]["message"]["content"]
+
+                return content
         except httpx.TimeoutException as exc:
             raise LocalLLMTimeoutError(
                 f"Local LLM timed out after {settings.LOCAL_LLM_TIMEOUT_SECONDS:.0f}s"
