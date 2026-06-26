@@ -19,6 +19,8 @@ class LocalLLMService:
 
         selected_model = model or settings.LOCAL_LLM_MODEL
         timeout = httpx.Timeout(settings.LOCAL_LLM_TIMEOUT_SECONDS, connect=10.0)
+        print(f"LOCAL_LLM PROMPT LENGTH: {len(prompt)} chars", flush=True)
+
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -29,14 +31,15 @@ class LocalLLMService:
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.0,
                         "max_tokens": settings.LOCAL_LLM_MAX_TOKENS,
-                        "chat_template_kwargs": {"enable_thinking": False},  # ← ADD: disable qwen3 thinking mode
+                        "options": {"num_ctx": 4096},
                     },
                 )
+                print(f"LOCAL_LLM STATUS: {response.status_code}", flush=True)
+                print(f"LOCAL_LLM BODY: {response.text[:1000]}", flush=True)
+
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
 
-                # qwen3 may still emit reasoning inside <think>...</think> — strip it out
-                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()  # ← ADD
                 return content
         except httpx.TimeoutException as exc:
             raise LocalLLMTimeoutError(

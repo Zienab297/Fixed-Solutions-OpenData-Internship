@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     JUDGE_ENABLED: bool = True
     JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
     JUDGE_MODEL: str = "llama3.2:3b"
-    JUDGE_TIMEOUT_SECONDS: float = 60.0
+    JUDGE_TIMEOUT_SECONDS: float = 120.0
     JUDGE_SCORE_THRESHOLD: float = 0.7
     JUDGE_CONTEXT_CHARS: int = 8000
 

@@ -7,7 +7,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.endpoints import evaluate, ingest, query, auth
 from app.api.v1.endpoints.domains import router as domains_router
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.logging_config import configure_json_logging
 from app.utils.seed import seed_admin
 
@@ -17,10 +17,21 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: seed system admin if not already present
+    from sqlalchemy import text  
+    
+    logger.info("Creating database schema 'rag' if it does not exist...")
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS rag;"))
+        
+    logger.info("Creating database tables if they do not exist...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        
+    logger.info("Seeding system admin...")
     async with AsyncSessionLocal() as db:
         await seed_admin(db)
         await db.commit()
+        
     logger.info("rag-api startup complete")
     yield
 
@@ -53,4 +64,4 @@ app.include_router(evaluate.router, prefix="/api/v1")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "healthy"}

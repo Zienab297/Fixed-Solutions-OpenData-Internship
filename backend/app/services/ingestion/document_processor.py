@@ -8,14 +8,12 @@ SessionLocal from database.py.  All DB operations here are synchronous.
 Flow
 ----
 1. Set document.ingest_status = 'processing'
-2. Extract text blocks from the file bytes
-3. Fetch domain chunk_size / chunk_overlap settings
-4. Chunk the text
-5. Embed each chunk in small batches (via Ollama)
-6. INSERT rows into rag.chunks
-7. Upsert embeddings into Qdrant
-8. Set document.ingest_status = 'completed'
-9. On any error → set status = 'failed', re-raise so Celery can retry
+2. Extract + chunk via process_file() (PDF/CSV/DOCX → LangChain Documents)
+3. Embed each chunk in small batches (via Ollama)
+4. INSERT rows into rag.chunks
+5. Upsert embeddings into Qdrant
+6. Set document.ingest_status = 'completed'
+7. On any error → set status = 'failed', re-raise so Celery can retry
 """
 from __future__ import annotations
 
@@ -28,14 +26,10 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.db.models import Chunk as ChunkModel, Document, Domain
-from app.services.ingestion.chunker import ChunkerService
-from app.services.ingestion.extractors import ExtractedBlock, extract_document
+from app.services.ingestion.chunker import process_file
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Embedding batch size: keep small enough for large CSV-derived chunks on CPU.
-# ---------------------------------------------------------------------------
 _EMBED_BATCH_SIZE = 5
 _EMBED_TIMEOUT_SECONDS = 500.0
 
@@ -43,16 +37,6 @@ _EMBED_TIMEOUT_SECONDS = 500.0
 def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
     """
     Call Ollama /api/embed synchronously in small batches.
-
-    Why batched?
-    Ollama processes embeddings sequentially internally. Sending 200 chunks
-    in a single 120 s request means the worker is blocked the whole time and
-    any transient failure forces a full retry. Splitting into batches of
-    _EMBED_BATCH_SIZE gives ~1-2 s per call, makes progress visible in logs,
-    and lets the worker recover cheaply on partial failure.
-
-    Falls back to zero vectors per batch if Ollama is unreachable (dev/test
-    safety) so DB writes still succeed and Qdrant can be re-indexed later.
     """
     import httpx
 
@@ -89,26 +73,12 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]]:
     return all_embeddings
 
 
-# ---------------------------------------------------------------------------
-# Qdrant upsert helper
-# ---------------------------------------------------------------------------
-
 def _upsert_chunks_to_qdrant(
     domain_id: UUID,
     chunk_rows: list,
     embeddings: list[list[float]],
     document_title: str,
 ) -> None:
-    """
-    Upsert chunk embeddings into the domain's Qdrant collection.
-
-    Collection name mirrors VectorSearchService._collection_name():
-      domain_<uuid_with_underscores>
-
-    Each point stores the metadata needed for retrieval so callers
-    never have to round-trip back to Postgres for basic fields.
-    Falls back gracefully if Qdrant is unreachable (dev / test safety).
-    """
     from qdrant_client import QdrantClient
     from qdrant_client.models import PointStruct, VectorParams, Distance
 
@@ -117,7 +87,6 @@ def _upsert_chunks_to_qdrant(
     try:
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
-        # Ensure collection exists (idempotent).
         try:
             client.create_collection(
                 collection_name=collection,
@@ -125,7 +94,7 @@ def _upsert_chunks_to_qdrant(
             )
             logger.info("Qdrant collection created: %s", collection)
         except Exception:
-            pass  # Collection already exists — safe to continue.
+            pass
 
         points = [
             PointStruct(
@@ -143,7 +112,6 @@ def _upsert_chunks_to_qdrant(
             for i in range(len(chunk_rows))
         ]
 
-        # Upsert in batches of 100 to avoid large payloads
         for start in range(0, len(points), 100):
             client.upsert(
                 collection_name=collection,
@@ -165,19 +133,13 @@ def _upsert_chunks_to_qdrant(
         )
 
 
-# ---------------------------------------------------------------------------
-# DocumentProcessor
-# ---------------------------------------------------------------------------
-
 class DocumentProcessor:
     """
     Synchronous processor used inside Celery tasks.
-    Opens its own DB session so it's fully independent of the FastAPI
-    async session lifecycle.
     """
 
     def __init__(self):
-        self.chunker = ChunkerService()
+        pass  # process_file() handles extraction + chunking — no chunker needed
 
     def process(
         self,
@@ -186,10 +148,6 @@ class DocumentProcessor:
         file_content: bytes,
         filename: str,
     ) -> None:
-        """
-        Entry point called by the Celery task.
-        All exceptions propagate so the task can retry.
-        """
         doc_uuid = UUID(document_id)
         domain_uuid = UUID(domain_id)
 
@@ -204,10 +162,6 @@ class DocumentProcessor:
                     logger.error("Could not mark document as failed: %s", inner)
                 raise
 
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
     def _process(
         self,
         db: Session,
@@ -220,21 +174,41 @@ class DocumentProcessor:
         self._set_status(db, document_id, "processing")
         db.commit()
 
-        # 2. Fetch domain settings (chunk_size / chunk_overlap)
+        # 2. Fetch domain (kept for future per-domain config)
         domain = db.execute(
             select(Domain).where(Domain.id == domain_id)
-        ).scalar_one_or_none()
-        chunk_size = domain.chunk_size if domain else 512
-        chunk_overlap = domain.chunk_overlap if domain else 64
+        ).scalar_one_or_none()  # noqa: F841
 
-        # 3. Extract text blocks
-        document = db.execute(
-            select(Document).where(Document.id == document_id)
-        ).scalar_one_or_none()
-        source_type = document.source_type if document else None
-        blocks = extract_document(filename, file_content, source_type)
+        # 3. Extract + chunk via process_file() — needs a real path on disk
+        import os
+        import tempfile
 
-        if not blocks or all(not block.text.strip() for block in blocks):
+        suffix = "_" + filename
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        try:
+            lc_documents = process_file(tmp_path)
+        except ValueError as exc:
+            logger.warning(
+                "document_id=%s: rejected unsupported format for %s — %s",
+                document_id, filename, exc,
+            )
+            self._set_status(db, document_id, "failed")
+            db.commit()
+            return
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except PermissionError:
+                logger.warning(
+                    "Could not delete temp file %s (still locked by another process). "
+                    "It will be cleaned up later by the OS temp folder cleanup.",
+                    tmp_path,
+                )
+
+        if not lc_documents or all(not d.page_content.strip() for d in lc_documents):
             logger.warning(
                 "document_id=%s: no text extracted from %s", document_id, filename
             )
@@ -242,48 +216,32 @@ class DocumentProcessor:
             db.commit()
             return
 
-        # 4. Chunk each extracted block
+        # 4. Build chunk data from LangChain Document objects
         all_chunks_data: list[dict] = []
-        for block in blocks:
-            if not block.text.strip():
+        for lc_doc in lc_documents:
+            if not lc_doc.page_content.strip():
                 continue
 
-            if block.metadata.get("source_type") == "csv":
-                all_chunks_data.append(
-                    {
-                        "content": block.text,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": block.page_number,
-                        "section": block.section,
-                        "metadata": _merge_metadata(block, None),
-                    }
-                )
-                continue
+            metadata = lc_doc.metadata or {}
+            page_number = metadata.get("page", metadata.get("page_number"))
+            section = metadata.get("section", metadata.get("row"))
 
-            chunks = self.chunker.chunk_text(
-                block.text,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                page_number=block.page_number,
-                section=block.section,
+            all_chunks_data.append(
+                {
+                    "content": lc_doc.page_content,
+                    "chunk_index": len(all_chunks_data),
+                    "page_number": page_number,
+                    "section": str(section) if section is not None else None,
+                    "metadata": metadata,
+                }
             )
-            for c in chunks:
-                all_chunks_data.append(
-                    {
-                        "content": c.content,
-                        "chunk_index": len(all_chunks_data),
-                        "page_number": c.page_number,
-                        "section": c.section,
-                        "metadata": _merge_metadata(block, c.metadata),
-                    }
-                )
 
         if not all_chunks_data:
             self._set_status(db, document_id, "completed")
             db.commit()
             return
 
-        # 5. Embed in small batches (fixes the 120 s single-call bottleneck)
+        # 5. Embed in small batches
         texts = [c["content"] for c in all_chunks_data]
         logger.info(
             "document_id=%s: embedding %d chunks in batches of %d",
@@ -295,7 +253,7 @@ class DocumentProcessor:
 
         # 6. Build and INSERT Chunk ORM rows
         chunk_rows = []
-        for i, chunk_data in enumerate(all_chunks_data):
+        for chunk_data in all_chunks_data:
             row = ChunkModel(
                 document_id=document_id,
                 domain_id=domain_id,
@@ -309,7 +267,7 @@ class DocumentProcessor:
             chunk_rows.append(row)
 
         db.add_all(chunk_rows)
-        db.flush()  # assign IDs before Qdrant upsert
+        db.flush()
 
         # 7. Upsert embeddings into Qdrant
         _upsert_chunks_to_qdrant(
@@ -339,7 +297,6 @@ class DocumentProcessor:
 
     @staticmethod
     def _mark_failed(db: Session, document_id: UUID) -> None:
-        """Safe status downgrade — only moves processing→failed."""
         db.execute(
             update(Document)
             .where(
@@ -348,9 +305,3 @@ class DocumentProcessor:
             )
             .values(ingest_status="failed")
         )
-
-
-def _merge_metadata(block: ExtractedBlock, chunk_metadata: dict | None) -> dict:
-    metadata = dict(block.metadata or {})
-    metadata.update(chunk_metadata or {})
-    return metadata
