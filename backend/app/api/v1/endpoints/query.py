@@ -176,6 +176,7 @@ async def _query_impl(
         else:
             llm_route = LLMRouter().determine_route(request.domain_ids, domain_routes)
             return QueryResponse(
+                query_id=str(uuid4()),
                 answer="I don't have enough information in the selected documents to answer that.",
                 llm_route=llm_route,
                 language_detected=detect_language(request.query),

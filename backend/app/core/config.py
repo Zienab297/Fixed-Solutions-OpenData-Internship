@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     OCR_DEVICE: str = "gpu"
 
     # Local LLM (Ollama OpenAI-compatible endpoint)
-    LOCAL_LLM_MODEL: str = "llama3.2:3b"
+    LOCAL_LLM_MODEL: str = "qwen3:8b"
     LOCAL_LLM_BASE_URL: str = "http://localhost:11434/v1"
     LOCAL_LLM_TIMEOUT_SECONDS: float = 240.0
     LOCAL_LLM_MAX_TOKENS: int = 2048
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     JUDGE_ENABLED: bool = True
     JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
     JUDGE_MODEL: str = "llama3.2:3b"
-    JUDGE_TIMEOUT_SECONDS: float = 120.0
+    JUDGE_TIMEOUT_SECONDS: float = 200.0
     JUDGE_SCORE_THRESHOLD: float = 0.7
     JUDGE_CONTEXT_CHARS: int = 8000
 
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     API_LLM_MODEL: str = "gemini-1.5-flash"
 
     # Legacy alias kept for any code that still reads GENERATION_MODEL
-    GENERATION_MODEL: str = "llama3.2:3b"
+    GENERATION_MODEL: str = "qwen3:8b"
 
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
