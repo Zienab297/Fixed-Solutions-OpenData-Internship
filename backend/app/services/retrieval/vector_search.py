@@ -1,10 +1,13 @@
 """Vector search via Qdrant. One collection per domain for isolation."""
+import logging
 from typing import List
 from uuid import UUID
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchAny
 from app.core.config import settings
-from app.services.ingestion.embedder import EmbeddingService
+from app.services.ingestion.embedder import EmbeddingService, EmbeddingServiceError
+
+logger = logging.getLogger("vector_search")
 
 
 class VectorSearchService:
@@ -20,7 +23,23 @@ class VectorSearchService:
         Semantic search across one or more domain collections.
         RBAC already verified upstream — these domain_ids are pre-authorized.
         """
-        query_vector = await self.embedder.embed(query)
+        try:
+            query_vector = await self.embedder.embed(query)
+        except EmbeddingServiceError as exc:
+            # Embedding is a hard dependency for this entire signal — if
+            # it fails, there is no vector to search with, so vector
+            # search returns [] same as before. The difference is this
+            # now logs LOUDLY at the point of failure (with the query
+            # that triggered it), instead of only as a generic
+            # "Signal 'vector' failed" warning three layers up in
+            # pipeline._safe() with no context about WHY. See embedder.py
+            # docstring — most often this means Ollama was busy serving
+            # a long generation call when this query came in.
+            logger.error(
+                "Vector search aborted: embedding failed for query %r after retries: %s",
+                query, exc,
+            )
+            return []
         all_results = []
 
         for domain_id in domain_ids:

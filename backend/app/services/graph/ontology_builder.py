@@ -60,6 +60,134 @@ class OntologyBuildError(RuntimeError):
     """Raised when the LLM's proposal can't be turned into a usable ontology file."""
 
 
+# ---------------------------------------------------------------------------
+# Cross-document sample accumulation
+# ---------------------------------------------------------------------------
+# ensure_ontology() (below) builds from whatever sample_texts it's handed,
+# with no opinion about where those came from. That's fine in isolation,
+# but building from a single document's first few chunks means the schema
+# reflects that one document's quirks (its specific examples, its specific
+# phrasing) rather than the domain as a whole — there's no way for a model
+# to generalize about a domain from n=1 document, however well-prompted.
+#
+# accumulate_or_build() sits in front of ensure_ontology() as the new entry
+# point for the common "domain has no ontology yet" path: each new document
+# in an unrecognized domain contributes its sample chunks to a per-domain
+# Redis list instead of triggering a build immediately. Only once
+# _MIN_SAMPLE_DOCUMENTS documents have contributed does it pull everything
+# accumulated and call ensure_ontology with the combined, more
+# representative sample set.
+#
+# Storage is Redis (not Postgres) deliberately: this is transient pipeline
+# state that exists only until the threshold is hit and the buffer is
+# cleared, not data any other part of the system ever queries relationally
+# — the same reasoning that already put the build lock in Redis.
+_MIN_SAMPLE_DOCUMENTS = 5
+
+
+def _sample_buffer_key(domain: str) -> str:
+    return f"ontology_sample_buffer:{domain}"
+
+
+async def accumulate_or_build(domain: str, sample_texts: list[str]) -> bool:
+    """
+    Call this instead of ensure_ontology() directly from the per-document
+    extraction path. Returns True only if THIS call's contribution was the
+    one that pushed the domain over _MIN_SAMPLE_DOCUMENTS and a new ontology
+    file was actually written. Returns False in every other case —
+    including "this document's samples were buffered, nothing built yet"
+    and "the domain already has an ontology" — so callers that only care
+    about "did building happen" can treat the return value the same way
+    ensure_ontology's callers already do.
+
+    Callers that need to distinguish "buffered, not enough yet" from "built
+    just now" (extractor.py does, to decide whether to skip graph
+    extraction for this document) should check ontology_loader.ontology_exists()
+    or get_known_domains() AFTER calling this, not rely on the return value
+    alone — that's the actual source of truth and avoids this function
+    needing a richer return type just to serve one caller's branching.
+    """
+    if ontology_loader.ontology_exists(domain):
+        return False
+
+    redis_client = _get_redis()
+    buffer_key = _sample_buffer_key(domain)
+    lock_key = f"ontology_build_lock:{domain}"
+
+    # Append this document's contribution first, unconditionally — even if
+    # another worker is mid-build on the lock below, this document's
+    # samples should still count toward the NEXT domain that needs
+    # buffering, and appending is safe to do without holding the build
+    # lock (RPUSH is atomic; we're not reading-then-deciding here).
+    if sample_texts:
+        await redis_client.rpush(buffer_key, *sample_texts)
+
+    buffered_count = await redis_client.llen(buffer_key)
+    # NOTE: this counts SAMPLE CHUNKS pushed, not documents. Each call here
+    # is expected to pass one document's worth of chunks (same
+    # _ONTOLOGY_SAMPLE_CHUNK_COUNT-sized slice extractor.py already builds
+    # today), so document count is tracked separately — see
+    # _sample_doc_count_key below — rather than inferring it from chunk
+    # count, since documents can contribute different numbers of chunks
+    # (e.g. a short document with fewer than 5 chunks total).
+    doc_count_key = f"{buffer_key}:doc_count"
+    doc_count = await redis_client.incr(doc_count_key)
+
+    if doc_count < _MIN_SAMPLE_DOCUMENTS:
+        logger.info(
+            "ontology_builder: domain '%s' has no ontology yet — buffered document %d/%d "
+            "before a build will be attempted.",
+            domain, doc_count, _MIN_SAMPLE_DOCUMENTS,
+        )
+        return False
+
+    got_lock = await redis_client.set(lock_key, "1", nx=True, ex=_LOCK_TTL_SECONDS)
+    if not got_lock:
+        # Someone else already hit the threshold and is building right
+        # now. Don't pull the buffer out from under them or double-call
+        # the LLM — ensure_ontology's own _wait_for_file path (reached via
+        # the ensure_ontology call below once we eventually get the lock,
+        # or here directly) covers waiting for that build to land.
+        logger.info(
+            "ontology_builder: domain '%s' hit the sample threshold but the build lock is "
+            "already held by another worker — waiting on that build instead.",
+            domain,
+        )
+        await _wait_for_file(domain)
+        return False
+
+    try:
+        if ontology_loader.ontology_exists(domain):
+            return False
+
+        raw_samples = await redis_client.lrange(buffer_key, 0, -1)
+        all_samples = [s.decode("utf-8") if isinstance(s, bytes) else s for s in raw_samples]
+        logger.info(
+            "ontology_builder: domain '%s' reached %d buffered documents — building ontology "
+            "from %d accumulated sample chunk(s) across all of them.",
+            domain, doc_count, len(all_samples),
+        )
+    finally:
+        # Release the lock we took here before calling ensure_ontology,
+        # which takes (and releases) its own lock under the same key —
+        # holding both at once would just deadlock against ourselves.
+        await redis_client.delete(lock_key)
+
+    built = await ensure_ontology(domain, all_samples)
+
+    if built:
+        # Only clear the buffer once a file actually landed on disk. If
+        # ensure_ontology raised (LLM timeout, invalid proposal, etc.) the
+        # buffer is deliberately left in place — the accumulated samples
+        # aren't lost, and the next document's call here will retry the
+        # build with the same accumulated set rather than starting over
+        # from zero.
+        await redis_client.delete(buffer_key)
+        await redis_client.delete(doc_count_key)
+
+    return built
+
+
 async def ensure_ontology(domain: str, sample_texts: list[str]) -> bool:
     """
     Idempotent: if the domain already has a file (written by this call
@@ -93,6 +221,7 @@ async def ensure_ontology(domain: str, sample_texts: list[str]) -> bool:
         build_start = time.monotonic()
         try:
             proposal = await _propose_ontology(domain, sample_texts)
+            proposal = _ensure_baseline_labels(domain, proposal)
             _validate_proposal(domain, proposal)
             await _validate_domain_relevance(domain, sample_texts, proposal)
         except OntologyBuildError as exc:
@@ -182,9 +311,28 @@ Below are sample excerpts from real documents in this domain:
 
 {joined}
 
-Propose a closed ontology for this domain: 6-10 entity (node) types and their relationship (edge) types, in the EXACT JSON shape below. This will be used as a fixed schema — be specific to what's actually in the text above, not generic placeholders.
+Note: "DocumentTitle" and "Author" labels, plus the relationship between them, are added automatically after your proposal — you do NOT need to include them yourself. Focus your node_labels on domain-specific concepts instead (e.g. algorithms, diseases, laws, datasets, tools) and the peripheral entities specific to this domain beyond title/author (e.g. course names, dates, organizations).
 
-Respond with ONLY a JSON object, no preamble, no markdown fences, no explanation, matching this shape exactly:
+Your goal is to produce a JSON ontology schema that will be used in two ways:
+1. A zero-shot NER model (GLiNER) will be given each label's "label" field, automatically converted from PascalCase into a lowercase phrase by splitting on capital letters (e.g. "MachineLearningAlgorithm" -> "machine learning algorithm", "AuthorEntity" -> "author entity"). THIS converted phrase — not the "description" field — is what GLiNER actually matches against text. The "description" field is for human/documentation purposes only and is never sent to the NER model. This means the "label" name itself must already read as a natural noun phrase once split and lowercased, because that is the literal string GLiNER will try to match.
+2. A local LLM will use the relationship_types to extract triples. "from" is the subject entity type (the one performing or being the primary actor), "to" is the object entity type.
+
+Label design rules:
+- Include 7-10 node labels. Cover BOTH the core domain concepts (e.g. algorithms, diseases, laws) AND the peripheral entities that actually appear in text (e.g. authors, tools, course names, document titles, dates). Documents mention peripheral entities far more often than core ones.
+- Generalize, don't enumerate: when the sample text lists several specific examples of one underlying concept (e.g. "ML is used in fraud detection, facial recognition, and speech transcription" is three examples of one thing — applications/tasks), create ONE label for the general category, not one label per example. A label should represent a category this domain has MANY instances of, not one specific instance the sample happened to mention in passing. Before adding a label, ask: "will many different real entities map to this label across many documents, or did I just name one thing I saw once?" If the latter, fold it into a more general label instead.
+- PascalCase label names (used as graph node labels — no spaces). Critically, avoid generic suffix words like "Entity", "Type", "Object", "Item", or "Concept" tacked onto a label — they survive into the GLiNER-facing phrase as noise that weakens the semantic match. Prefer "Author" over "AuthorEntity", "Task" over "TaskType", "Publication" over "PublicationType". A suffix is fine only when it's a concrete, meaningful part of the concept rather than a generic wrapper — "DocumentTitle" is fine because "title" is specific, but "DocumentEntity" would not be.
+- Self-test before finalizing each label: split it on capital letters and lowercase it (mentally apply the same transform GLiNER will see), then ask "would a person use this exact phrase to describe this entity out loud?" If the answer is no — if it sounds like an identifier rather than a phrase — rename the label.
+- Each label's "description" must still be a short natural-language phrase a human would use to describe that thing in a sentence, starting with "a" or "the" (e.g. "a machine learning algorithm or model"). This is for documentation/downstream use, not for the NER model.
+
+Relationship design rules:
+- At least 4 relationship_types.
+- "from" is the SUBJECT (the entity that performs, is, or has the relationship). "to" is the OBJECT.
+- Example: if a DocumentTitle is AUTHORED_BY an Author, then from="DocumentTitle", to="Author" — the document is the subject, the author is the object.
+- "from" and "to" must each be a label you defined in node_labels.
+- Predicate must be a single UPPER_SNAKE_CASE token.
+- Include a "meaning" field: one sentence describing what the relationship means, with subject and object named explicitly (e.g. "The document was written by the author").
+
+Respond with ONLY a JSON object, no preamble, no markdown fences, no explanation:
 
 {{
   "ontology": "{domain.title()} Domain Ontology",
@@ -192,24 +340,21 @@ Respond with ONLY a JSON object, no preamble, no markdown fences, no explanation
   "node_labels": [
     {{
       "label": "PascalCaseEntityType",
-      "description": "one-sentence description",
+      "description": "a short natural-language phrase describing what this entity is",
       "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"]
     }}
   ],
   "relationship_types": [
     {{
       "relationship": "UPPER_SNAKE_CASE_PREDICATE",
-      "from": "SourceEntityLabel",
-      "to": "TargetEntityLabel",
-      "meaning": "one-sentence description"
+      "from": "SubjectEntityLabel",
+      "to": "ObjectEntityLabel",
+      "meaning": "The subject was/is/does X to the object."
     }}
   ]
 }}
 
-Rules:
-- node_labels: 6-10 entries, PascalCase labels, each key_properties list must always include exactly ["name", "domain", "schema_version", "source_chunk_ids"]
-- relationship_types: at least 3 entries. "from" and "to" must each be one of the labels you defined in node_labels.
-- Every relationship's predicate must be a single UPPER_SNAKE_CASE token.
+key_properties must always be exactly ["name", "domain", "schema_version", "source_chunk_ids"] for every node label.
 """
 
 
@@ -235,6 +380,109 @@ async def _propose_ontology(domain: str, sample_texts: list[str]) -> dict[str, A
         ) from exc
 
     return parsed
+
+
+# ---------------------------------------------------------------------------
+# Baseline labels — guaranteed regardless of what the LLM proposed
+# ---------------------------------------------------------------------------
+# Title and author are structural metadata almost every document has, but
+# whether the LLM's proposal includes them depends entirely on whether the
+# small sample of chunks it was shown happened to surface a byline near the
+# top. A document whose first 5 chunks are all body text (no visible title
+# page) would otherwise build a domain ontology with no way to ever capture
+# "who wrote this" for ANY future document in that domain, since labels are
+# frozen after this one build (see module docstring). Rather than leaving
+# that to chance, this guarantees the two labels and their relationship
+# exist, then lets the LLM's domain-specific labels add everything else on
+# top. This runs before _validate_proposal so the injected entries get the
+# same structural checks as everything the LLM proposed.
+_BASELINE_TITLE_LABEL = "DocumentTitle"
+_BASELINE_TITLE_DESCRIPTION = "the title of a document"
+_BASELINE_AUTHOR_LABEL = "Author"
+_BASELINE_AUTHOR_DESCRIPTION = "the name of a person who wrote or created a document"
+_BASELINE_RELATIONSHIP = "AUTHORED_BY"
+
+# Phrases that suggest an existing label already plays the "title" or
+# "author" role under a different name (e.g. the LLM called it "Paper" or
+# "Creator") — checked against both the label (humanized the same way
+# ner_client.py does) and the description, so a same-meaning label proposed
+# under different wording isn't duplicated alongside the baseline one.
+_TITLE_ROLE_HINTS = ("title", "paper", "publication name", "document name")
+_AUTHOR_ROLE_HINTS = ("author", "writer", "creator", "wrote", "created by")
+
+# Local copy of the PascalCase->phrase split also used in ner_client.py.
+# Not imported from there on purpose: ontology generation is upstream of
+# NER (ner_client.py reads the files this module writes), so depending on
+# ner_client.py here would invert that layering for the sake of one tiny
+# regex. Keep both in sync if the splitting rule ever changes.
+import re as _re
+_BASELINE_PASCAL_SPLIT_RE = _re.compile(r"(?<!^)(?=[A-Z])")
+
+
+def _humanize_for_role_check(label: str) -> str:
+    return " ".join(_BASELINE_PASCAL_SPLIT_RE.split(label)).lower()
+
+
+def _label_matches_role(entry: dict[str, Any], hints: tuple[str, ...]) -> bool:
+    haystack = f"{_humanize_for_role_check(entry.get('label', ''))} {entry.get('description', '')}".lower()
+    return any(hint in haystack for hint in hints)
+
+
+def _ensure_baseline_labels(domain: str, proposal: dict[str, Any]) -> dict[str, Any]:
+    node_labels = proposal.get("node_labels")
+    if not isinstance(node_labels, list):
+        # Malformed shape — let _validate_proposal raise its own clear error
+        # rather than this function trying to patch something unparseable.
+        return proposal
+
+    has_title = any(_label_matches_role(e, _TITLE_ROLE_HINTS) for e in node_labels if isinstance(e, dict))
+    has_author = any(_label_matches_role(e, _AUTHOR_ROLE_HINTS) for e in node_labels if isinstance(e, dict))
+
+    title_label = _BASELINE_TITLE_LABEL
+    author_label = _BASELINE_AUTHOR_LABEL
+
+    if not has_title:
+        node_labels.append({
+            "label": _BASELINE_TITLE_LABEL,
+            "description": _BASELINE_TITLE_DESCRIPTION,
+            "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"],
+        })
+        logger.info("ontology_builder: domain '%s' proposal had no title-like label — added baseline '%s'.",
+                     domain, _BASELINE_TITLE_LABEL)
+    else:
+        # Use whatever label the LLM actually proposed for this role, so the
+        # baseline relationship below points at the real label name instead
+        # of creating a duplicate "DocumentTitle" the LLM's own label shadows.
+        title_label = next(e["label"] for e in node_labels if isinstance(e, dict) and _label_matches_role(e, _TITLE_ROLE_HINTS))
+
+    if not has_author:
+        node_labels.append({
+            "label": _BASELINE_AUTHOR_LABEL,
+            "description": _BASELINE_AUTHOR_DESCRIPTION,
+            "key_properties": ["name", "domain", "schema_version", "source_chunk_ids"],
+        })
+        logger.info("ontology_builder: domain '%s' proposal had no author-like label — added baseline '%s'.",
+                     domain, _BASELINE_AUTHOR_LABEL)
+    else:
+        author_label = next(e["label"] for e in node_labels if isinstance(e, dict) and _label_matches_role(e, _AUTHOR_ROLE_HINTS))
+
+    relationship_types = proposal.get("relationship_types")
+    if isinstance(relationship_types, list):
+        has_authored_by = any(
+            isinstance(r, dict) and r.get("from") == title_label and r.get("to") == author_label
+            for r in relationship_types
+        )
+        if not has_authored_by:
+            relationship_types.append({
+                "relationship": _BASELINE_RELATIONSHIP,
+                "from": title_label,
+                "to": author_label,
+                "meaning": "The document was written by the author.",
+            })
+            logger.info("ontology_builder: domain '%s' proposal had no title-author relationship — added baseline '%s' (%s -> %s).",
+                         domain, _BASELINE_RELATIONSHIP, title_label, author_label)
+
+    return proposal
 
 
 # ---------------------------------------------------------------------------

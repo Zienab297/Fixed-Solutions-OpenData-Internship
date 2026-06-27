@@ -125,7 +125,29 @@ class GraphExtractor:
             logger.info("document_id=%s: no chunks found, nothing to extract.", document_id)
             return
 
-        await self._ensure_domain_ontology(domain_id, chunks)
+        ontology_ready = await self._ensure_domain_ontology(domain_id, chunks)
+        if not ontology_ready:
+            # Domain is still accumulating sample documents toward
+            # ontology_builder's threshold (see accumulate_or_build) — no
+            # ontology file exists yet, so there's no label set to NER
+            # against and no schema to validate triples against. Skip
+            # graph extraction for THIS document rather than retrying the
+            # whole task: retrying wouldn't help (the domain won't have
+            # enough samples until other documents arrive and contribute
+            # their own), and this document has already been chunked and
+            # embedded by the time run_entity_extraction runs (see
+            # tasks.py: process_document -> embeds/indexes first, then
+            # .delay()s this task) — vector/BM25 search already cover it.
+            # It just won't have graph nodes until the ontology exists,
+            # and documents ingested before that point are not
+            # automatically backfilled once it does.
+            logger.info(
+                "document_id=%s: domain_id=%s ontology not ready yet (still accumulating "
+                "sample documents) — skipping graph extraction for this document; it remains "
+                "fully searchable via vector/BM25 in the meantime.",
+                document_id, domain_id,
+            )
+            return
 
         domain = self._resolve_domain_name(domain_id, chunks)
         schema_version = ner_client.get_domain_schema_version(domain)
@@ -210,7 +232,7 @@ class GraphExtractor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def _ensure_domain_ontology(domain_id: str, chunks: list[ChunkModel]) -> None:
+    async def _ensure_domain_ontology(domain_id: str, chunks: list[ChunkModel]) -> bool:
         """
         Runs before _resolve_domain_name's strict check. Guesses the
         ontology key the same way _resolve_domain_name does (display
@@ -218,13 +240,34 @@ class GraphExtractor:
         than refactoring _resolve_domain_name's signature, so its
         existing strict behavior for every other caller is untouched.
 
-        On a miss (key not in ontology_loader.get_known_domains()),
-        hands ontology_builder this document's own first few chunks as
-        sample text and lets it build + write the ontology file. After
-        this returns, _resolve_domain_name's own lookup of
-        ner_client.get_known_domains() (which now reads through to the
-        same on-disk scan) will see the new file and succeed normally —
-        no other code path changes.
+        Returns True if the domain has (or now has) a usable ontology
+        file and graph extraction should proceed for this document.
+        Returns False if the domain is still accumulating sample
+        documents and has no ontology yet — callers must NOT proceed to
+        _resolve_domain_name in that case (it would just raise), and
+        should instead skip graph extraction for this document while
+        still letting the rest of ingestion (chunking, embedding,
+        vector/BM25 indexing) succeed normally. The document is fully
+        findable via vector search in the meantime; it just has no
+        graph nodes yet. Once enough documents have accumulated and the
+        ontology is built, documents ingested AFTER that point get full
+        graph extraction — documents ingested during the buffering
+        window do not get backfilled automatically.
+
+        ROOT-CAUSE NOTE (why this no longer builds from one document):
+        a single document's first few chunks aren't a reliable sample
+        of an entire domain — a document that happens to list several
+        examples of one underlying concept (e.g. "ML is used in fraud
+        detection, facial recognition, speech transcription") can make
+        the proposal enumerate those examples as separate entity types
+        rather than recognizing them as instances of one category, and
+        a document with no visible author/title near its sampled chunks
+        means no future document in that domain ever gets author
+        extraction either. ontology_builder.accumulate_or_build()
+        buffers several documents' samples before building, so the
+        proposal reflects the domain rather than one document's
+        idiosyncrasies. See ontology_builder.py for the buffering logic
+        itself.
 
         Deliberately does not catch ontology_builder.OntologyBuildError:
         if the LLM proposal fails or produces an invalid schema, this
@@ -242,19 +285,25 @@ class GraphExtractor:
         if domain is None:
             # Let _resolve_domain_name raise its own clear "not found" error
             # right after this returns, rather than duplicating that check.
-            return
+            return True
 
         guessed_key = domain.name.strip().lower()
         if guessed_key in ontology_loader.get_known_domains():
-            return
+            return True
 
         sample_texts = [c.content for c in chunks[:_ONTOLOGY_SAMPLE_CHUNK_COUNT]]
         logger.info(
             "domain_id=%s (name=%r): no ontology file for key %r yet — "
-            "building one from this document's first %d chunk(s).",
+            "contributing this document's %d sample chunk(s) toward a build.",
             domain_id, domain.name, guessed_key, len(sample_texts),
         )
-        await ontology_builder.ensure_ontology(guessed_key, sample_texts)
+        await ontology_builder.accumulate_or_build(guessed_key, sample_texts)
+
+        # accumulate_or_build's return value alone doesn't tell us whether
+        # the ontology is ready — see its docstring. The actual source of
+        # truth is whether a file now exists, whether this call was the
+        # one that built it or a previous document's call already did.
+        return ontology_loader.ontology_exists(guessed_key)
 
     # ------------------------------------------------------------------
     # Chunk fetching (sync — matches document_processor.py's write path)
@@ -297,13 +346,17 @@ class GraphExtractor:
         key all named in the error — not three frames deep in a different
         module with no context about which document or domain triggered it.
 
-        NOTE: as of the ontology auto-build addition, extract_and_store
-        calls _ensure_domain_ontology() before this method, which already
-        builds a missing ontology file for the common new-domain case. So
-        in practice this should now only ever raise for a genuine
+        NOTE: as of the sample-accumulation addition to the ontology
+        auto-build pipeline, extract_and_store only calls this method
+        AFTER _ensure_domain_ontology() has returned True (ontology file
+        confirmed present) — when the domain is still accumulating sample
+        documents toward ontology_builder's threshold, extract_and_store
+        returns early and never reaches this method at all. So in
+        practice this should now only ever raise for a genuine
         display-name mismatch (e.g. a typo, or a Domain that was never
-        meant to have an ontology) — not for "domain is simply new", which
-        _ensure_domain_ontology already handles.
+        meant to have an ontology) — not for "domain is simply new" or
+        "domain hasn't accumulated enough sample documents yet", both of
+        which are handled upstream before this is ever called.
 
         This still doesn't replace a real mapping table if your Domain
         model ever needs admin-chosen domain names that don't resemble

@@ -128,9 +128,20 @@ class Triple(BaseModel):
 # Prompting
 # ---------------------------------------------------------------------------
 def _build_prompt(chunk_text: str, entities: list[CandidateEntity], domain_rels: _DomainRelationships) -> str:
-    entity_lines = "\n".join(f'- "{e.text}" ({e.label})' for e in entities)
-    predicate_lines = "\n".join(
-        f"- {r.predicate}: ({r.from_label}) -> ({r.to_label})" for r in domain_rels.relationships
+    entity_lines = "\n".join(f'  {i+1}. subject/object text: "{e.text}"  |  type: {e.label}' for i, e in enumerate(entities))
+
+    # Build valid combinations explicitly so the LLM doesn't have to infer
+    # which subject type is valid for each predicate — this is the main
+    # source of label-mismatch drops when the model hallucinates a predicate
+    # or swaps subject/object types.
+    valid_combo_lines = "\n".join(
+        f'  - predicate "{r.predicate}" requires: subject type={r.from_label}, object type={r.to_label}'
+        for r in domain_rels.relationships
+    )
+
+    # Build a compact lookup the LLM can cross-reference when choosing subject/object
+    entity_type_lookup = "\n".join(
+        f'  "{e.text}" is type {e.label}' for e in entities
     )
 
     return f"""You are extracting structured relationships from a text chunk.
@@ -138,18 +149,26 @@ def _build_prompt(chunk_text: str, entities: list[CandidateEntity], domain_rels:
 TEXT:
 {chunk_text}
 
-ENTITIES ALREADY DETECTED IN THIS TEXT (use ONLY these as subjects/objects, do not invent new entities):
+DETECTED ENTITIES (you may ONLY use these exact texts as subject or object values):
 {entity_lines}
 
-ALLOWED RELATIONSHIP TYPES (predicate: from_entity_type -> to_entity_type):
-{predicate_lines}
+Entity type reference (use this to check validity before outputting a triple):
+{entity_type_lookup}
 
-Extract every relationship between the entities above that is explicitly stated or strongly implied in the text, using ONLY the allowed relationship types and ONLY the entities listed.
+VALID RELATIONSHIP COMBINATIONS (predicate with required subject and object types):
+{valid_combo_lines}
 
-Respond with ONLY a JSON array, no preamble, no markdown fences, no explanation. Each element:
-{{"subject": "<entity text, exact match from the list above>", "predicate": "<one of the allowed relationship types>", "object": "<entity text, exact match from the list above>"}}
+RULES — read carefully before responding:
+1. "subject" and "object" must be copied EXACTLY from the entity texts listed above (e.g. "Neural Networks", NOT "MachineLearningAlgorithm").
+2. Do NOT use entity type names (like MachineLearningAlgorithm, TaskType) as subject or object values — those are types, not entity texts.
+3. Before outputting each triple, verify: does the subject's type match the required subject type for that predicate? Does the object's type match the required object type? If not, skip that triple.
+4. Only extract relationships explicitly stated or strongly implied in the TEXT above.
+5. If no valid triple can be formed from the entities and relationships listed, output an empty array.
 
-If no valid relationships exist, respond with an empty array: []
+Respond with ONLY a JSON array, no preamble, no markdown fences, no explanation:
+[{{"subject": "<exact entity text>", "predicate": "<predicate name>", "object": "<exact entity text>"}}, ...]
+
+If no valid relationships exist: []
 """
 
 

@@ -196,6 +196,9 @@ async def extract_entities(
         "threshold": threshold,
     }
 
+    text_len = len(text)
+    text_preview = text[:120].replace("\n", "\\n")
+
     last_exc: Optional[Exception] = None
     for attempt in range(1, _MAX_RETRIES + 2):  # e.g. 1 try + 2 retries = 3 attempts
         try:
@@ -225,11 +228,22 @@ async def extract_entities(
                 restored.append(entity.model_copy(update={"label": original_label}))
             return restored
 
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
+            # RemoteProtocolError ("Server disconnected without sending a
+            # response") happens when the NER service process dies or is
+            # killed mid-request (e.g. OOM, unhandled exception, or a
+            # reload triggered while a request is in flight) — it's a
+            # transport-level failure just like a dropped connection or
+            # timeout, so it belongs in the same retry bucket. Previously
+            # this exception fell through to the bare `raise last_exc`
+            # path with zero local retries, masking real retry behavior
+            # behind a single immediate failure.
             last_exc = exc
             logger.warning(
-                "NER service call failed (attempt %d/%d): %s",
-                attempt, _MAX_RETRIES + 1, exc,
+                "NER service call failed (attempt %d/%d) for domain '%s' "
+                "[text_len=%d labels=%d]: %s | text preview: %r",
+                attempt, _MAX_RETRIES + 1, domain, text_len, len(humanized_labels),
+                exc, text_preview,
             )
             if attempt <= _MAX_RETRIES:
                 continue
@@ -237,8 +251,9 @@ async def extract_entities(
 
         except httpx.HTTPStatusError as exc:
             logger.error(
-                "NER service returned %s for domain '%s': %s",
-                exc.response.status_code, domain, exc.response.text[:300],
+                "NER service returned %s for domain '%s' [text_len=%d labels=%d]: %s | text preview: %r",
+                exc.response.status_code, domain, text_len, len(humanized_labels),
+                exc.response.text[:300], text_preview,
             )
             raise
 

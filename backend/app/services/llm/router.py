@@ -93,13 +93,31 @@ class LLMRouter:
         return self._truncate(context, settings.LOCAL_LLM_CONTEXT_CHARS)
 
     def _build_prompt(self, query: str, context: str, language: str) -> str:
+        # PATCHED — the old "If the context is ... insufficient" rule gave
+        # the model zero guidance on what "insufficient" means, so it was
+        # free to demand literal/verbatim phrasing before answering. A
+        # chunk like "LAB 8 INTELLIGENT SYSTEMS Eng. Mariam Rashad" never
+        # uses the words "created" or "author", so a cautious model could
+        # (and intermittently did) refuse a question like "who created
+        # lab 8" even with the right chunk sitting right there — the
+        # refusal is a real LLM output each time, not a retrieval miss,
+        # and a borderline judgment call like this can land differently
+        # run to run even at temperature 0.0 depending on the inference
+        # engine. The fix is giving the model an explicit, worked example
+        # of the kind of direct inference it SHOULD make (a name next to
+        # a title/heading answers "who made this"), while keeping the
+        # refusal behavior for genuinely unrelated/missing context.
         return f"""You are a concise RAG assistant.
+
 Rules:
-- Answer only from the provided context. Do not use general knowledge.
-- If the context is empty or insufficient, answer exactly: I don't have enough information in the selected documents to answer that.
+- Answer only using facts stated or directly implied in the provided context. Do not use outside/general knowledge.
+- Make reasonable, direct inferences from the context. You do NOT need an exact phrase match — if the context clearly implies the answer, state it directly.
+  Example: if a source reads "LAB 8 INTELLIGENT SYSTEMS  Eng. Mariam Rashad" and the question asks who created/made/wrote Lab 8, the correct answer is "Eng. Mariam Rashad" — a name attached to a title/heading like this identifies that person as the creator, even though the word "created" never appears.
+- Only refuse when the context is genuinely empty, or covers a different topic entirely with nothing relevant to infer from. In that case, and ONLY in that case, answer exactly: I don't have enough information in the selected documents to answer that.
 - Keep the answer short.
 - Cite only source numbers that appear in the context, such as [Source 1].
 - Never write placeholder citations like [Source N].
+
 Respond in language code: {language}.
 
 Context:
