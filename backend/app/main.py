@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.api.v1.endpoints import evaluate, ingest, query, auth
+from app.api.v1.endpoints import documents, evaluate, ingest, query, auth
 from app.api.v1.endpoints.domains import router as domains_router
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.logging_config import configure_json_logging
@@ -64,6 +64,7 @@ Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_sch
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(domains_router, prefix="/api/v1")
+app.include_router(documents.router, prefix="/api/v1")
 app.include_router(ingest.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
 app.include_router(evaluate.router, prefix="/api/v1")
