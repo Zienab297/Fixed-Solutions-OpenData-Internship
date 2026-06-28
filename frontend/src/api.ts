@@ -6,6 +6,7 @@ import type {
   LoginResponse,
   Membership,
   ModerationItem,
+  QualityDomainDetail,
   QualityDomainSummary,
   QueryResponse,
   User,
@@ -215,6 +216,15 @@ export function fetchQualitySummary(
   });
 }
 
+export function fetchQualityDomainDetail(
+  token: string,
+  domainId: string,
+): Promise<QualityDomainDetail> {
+  return apiRequest<QualityDomainDetail>(`/evaluate/quality/domains/${domainId}`, {
+    token,
+  });
+}
+
 export function fetchModerationItems(
   token: string,
   statusFilter: "pending" | "accepted" | "rejected" | "all" = "pending",
@@ -239,6 +249,20 @@ export function updateModerationItem(
       reviewer_rationale: reviewerRationale,
     }),
   });
+}
+
+export function deleteDomainDocument(
+  token: string,
+  domainId: string,
+  documentId: string,
+): Promise<{ document_id: string; deleted: boolean; deleted_chunk_count: number }> {
+  return apiRequest<{ document_id: string; deleted: boolean; deleted_chunk_count: number }>(
+    `/evaluate/quality/domains/${domainId}/documents/${documentId}`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
 }
 
 export function uploadDocument(

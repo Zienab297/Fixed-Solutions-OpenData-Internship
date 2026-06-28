@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS rag.table_rows (
 CREATE TABLE IF NOT EXISTS rag.audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     query_id UUID NOT NULL,
+    query_text TEXT,
+    answer_text TEXT,
     user_id UUID REFERENCES rag.users(id),
     api_key_id UUID REFERENCES rag.api_keys(id),
     domains_queried UUID[] NOT NULL,
@@ -203,6 +205,8 @@ CREATE INDEX IF NOT EXISTS idx_table_rows_chunk ON rag.table_rows(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_table_rows_data_gin ON rag.table_rows USING GIN (row_data);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON rag.audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON rag.audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_query_id ON rag.audit_logs(query_id);
+CREATE INDEX IF NOT EXISTS idx_audit_domains_queried ON rag.audit_logs USING GIN(domains_queried);
 CREATE INDEX IF NOT EXISTS idx_eval_query ON rag.evaluation_results(query_id);
 CREATE INDEX IF NOT EXISTS idx_eval_audit ON rag.evaluation_results(audit_log_id);
 CREATE INDEX IF NOT EXISTS idx_eval_created ON rag.evaluation_results(created_at);

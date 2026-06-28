@@ -25,9 +25,6 @@ export default function ObservabilityPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">Observability</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Live metrics from Prometheus, rendered by Grafana.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <button

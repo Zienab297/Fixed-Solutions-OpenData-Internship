@@ -173,11 +173,6 @@ export default function UploadPage() {
     <div className="mx-auto grid max-w-6xl gap-6">
       <section className="grid gap-2">
         <h1 className="text-3xl font-semibold tracking-normal">Upload</h1>
-        <p className="max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-          Submit PDF, DOCX, or CSV files into the ingestion worker. The API
-          returns a job ID immediately while the worker extracts, chunks,
-          embeds, and indexes.
-        </p>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -236,9 +231,6 @@ export default function UploadPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold">Job Status</p>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                Polling every 2 seconds
-              </p>
             </div>
             <FileText size={20} />
           </div>

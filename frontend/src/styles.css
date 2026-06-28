@@ -23,6 +23,32 @@ body {
   margin: 0;
 }
 
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0.001deg);
+  }
+  50% {
+    transform: translate3d(-18px, -20px, 0) rotate(0.001deg);
+  }
+}
+
+.landing-hero-object {
+  animation: landing-float 8s ease-in-out infinite;
+}
+
+.landing-hero-copy {
+  text-shadow:
+    0 2px 22px rgb(0 0 0 / 0.75),
+    0 1px 1px rgb(0 0 0 / 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero-object {
+    animation: none;
+  }
+}
+
 button,
 input,
 select,

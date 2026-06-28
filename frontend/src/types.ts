@@ -92,11 +92,52 @@ export type QualityDomainSummary = {
   last_evaluated_at?: string | null;
 };
 
+export type DomainHistoryItem = {
+  audit_log_id: string;
+  query_id: string;
+  question?: string | null;
+  answer?: string | null;
+  llm_route?: string | null;
+  confidence_score?: number | null;
+  status: "pending" | "completed";
+  evaluation?: EvaluationScores | null;
+  asked_at?: string | null;
+};
+
+export type DomainDocument = {
+  id: string;
+  title: string;
+  source_type: string;
+  source_url?: string | null;
+  ingest_status: IngestionStatus;
+  ocr_used?: boolean | null;
+  language?: string | null;
+  metadata?: Record<string, unknown>;
+  chunk_count: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type QualityDomainDetail = {
+  domain: {
+    id: string;
+    name: string;
+    description?: string | null;
+    status: string;
+    llm_route: string;
+  };
+  history: DomainHistoryItem[];
+  documents: DomainDocument[];
+  flagged: ModerationItem[];
+};
+
 export type ModerationItem = {
   id: string;
   audit_log_id: string;
   evaluation_result_id: string;
   query_id: string;
+  question?: string | null;
+  answer?: string | null;
   domain_id?: string | null;
   domain_name?: string | null;
   status: "pending" | "accepted" | "rejected";
@@ -109,6 +150,7 @@ export type ModerationItem = {
   confidence_score?: number | null;
   created_at?: string | null;
   evaluated_at?: string | null;
+  reviewed_at?: string | null;
 };
 
 export type IngestionStatus = "pending" | "processing" | "completed" | "failed";

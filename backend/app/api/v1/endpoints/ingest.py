@@ -241,4 +241,7 @@ async def ingest_web(
 async def get_ingest_status(job_id: str):
     from app.workers.celery_app import celery_app
     result = celery_app.AsyncResult(job_id)
-    return {"job_id": job_id, "status": result.status, "result": result.result}
+    result_value = result.result
+    if isinstance(result_value, BaseException):
+        result_value = str(result_value)
+    return {"job_id": job_id, "status": result.status, "result": result_value}

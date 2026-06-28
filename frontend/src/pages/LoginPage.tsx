@@ -13,8 +13,8 @@ type Props = {
 
 export default function LoginPage({ onLogin, theme, setTheme }: Props) {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("dev@example.com");
-  const [password, setPassword] = useState("dev-mode");
+  const [email, setEmail] = useState("admin@example.com");
+  const [password, setPassword] = useState("changeme123");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isDark = theme === "dark";
@@ -44,12 +44,8 @@ export default function LoginPage({ onLogin, theme, setTheme }: Props) {
               <LockKeyhole size={26} />
             </div>
             <h1 className="mt-8 text-5xl font-semibold leading-tight tracking-normal">
-              Secure access for domain-aware RAG workflows.
+              Secure access for RAG Workspace.
             </h1>
-            <p className="mt-5 text-lg leading-8 text-zinc-600 dark:text-zinc-300">
-              Sign in once, upload source PDFs, and ask questions inside the
-              selected knowledge domain.
-            </p>
             <div className="mt-10 grid grid-cols-3 gap-3 text-sm">
               {["Auth", "Chat", "Ingest"].map((item) => (
                 <div
@@ -57,9 +53,6 @@ export default function LoginPage({ onLogin, theme, setTheme }: Props) {
                   className="rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800"
                 >
                   <p className="font-semibold">{item}</p>
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Sprint 1
-                  </p>
                 </div>
               ))}
             </div>

@@ -292,6 +292,8 @@ class AuditLog(Base):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     query_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    query_text: Mapped[Optional[str]] = mapped_column(Text)
+    answer_text: Mapped[Optional[str]] = mapped_column(Text)
     user_id: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")
     )

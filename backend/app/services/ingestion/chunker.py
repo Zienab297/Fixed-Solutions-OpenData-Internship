@@ -1,11 +1,12 @@
 """
-Unified ingestion pipeline supporting PDF, CSV, and DOCX/DOC.
+Unified ingestion pipeline supporting PDF, CSV, and DOCX.
 Strictly rejects any other file formats. Import cost: zero (lazy imports).
 
 Tables are extracted separately and chunked row-by-row to preserve
 structure (column headers stay attached to each row's values) instead
 of letting RecursiveCharacterTextSplitter break them mid-row.
 """
+import csv
 import os
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -21,20 +22,15 @@ def process_file(file_path: str) -> list[Document]:
         table_docs = _extract_pdf_tables(file_path)
 
     elif ext == ".csv":
-        from langchain_community.document_loaders import CSVLoader
-        loader = CSVLoader(file_path)
-        docs = loader.load()
-        return docs
+        return _load_csv(file_path)
 
-    elif ext in [".docx", ".doc"]:
-        from langchain_community.document_loaders import Docx2txtLoader
-        loader = Docx2txtLoader(file_path)
-        docs = loader.load()
+    elif ext == ".docx":
+        docs = _load_docx(file_path)
         table_docs = _extract_docx_tables(file_path)
 
     else:
         raise ValueError(
-            f"❌ Unsupported file format! The system is configured to process only PDF, CSV, and DOCX/DOC files. "
+            f"Unsupported file format. The system is configured to process only PDF, CSV, and DOCX files. "
             f"Rejected file: {os.path.basename(file_path)}"
         )
 
@@ -48,6 +44,108 @@ def process_file(file_path: str) -> list[Document]:
     return text_chunks + table_docs
 
 
+def _load_csv(file_path: str) -> list[Document]:
+    """
+    Load CSV rows without LangChain loader dependencies. Each row becomes
+    one chunk so table-like records stay intact and ingestion stays cheap.
+    """
+    table_docs: list[Document] = []
+
+    try:
+        rows = _read_csv_rows(file_path)
+    except Exception:
+        return table_docs
+
+    if not rows:
+        return table_docs
+
+    headers = [cell.strip() for cell in rows[0]]
+    data_rows = rows[1:] if len(rows) > 1 else rows
+    has_headers = any(headers) and len(data_rows) > 0
+
+    for row_index, row in enumerate(data_rows, start=1):
+        values = [str(value).strip() for value in row]
+        if not any(values):
+            continue
+
+        if has_headers:
+            row_text = " | ".join(
+                f"{_csv_header(headers, i)}: {value}"
+                for i, value in enumerate(values)
+                if value
+            )
+        else:
+            row_text = " | ".join(value for value in values if value)
+
+        if not row_text.strip():
+            continue
+
+        table_docs.append(
+            Document(
+                page_content=row_text,
+                metadata={
+                    "row": row_index,
+                    "type": "table",
+                    "source_type": "csv",
+                },
+            )
+        )
+
+    return table_docs
+
+
+def _csv_header(headers: list[str], index: int) -> str:
+    if index < len(headers) and headers[index]:
+        return headers[index]
+    return f"column_{index + 1}"
+
+
+def _read_csv_rows(file_path: str) -> list[list[str]]:
+    for encoding in ("utf-8-sig", "utf-8", "cp1252"):
+        try:
+            with open(file_path, newline="", encoding=encoding) as handle:
+                sample = handle.read(2048)
+                handle.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample)
+                except csv.Error:
+                    dialect = csv.excel
+                return [row for row in csv.reader(handle, dialect=dialect)]
+        except UnicodeDecodeError:
+            continue
+    with open(file_path, newline="", encoding="latin-1") as handle:
+        return [row for row in csv.reader(handle)]
+
+
+def _load_docx(file_path: str) -> list[Document]:
+    """
+    Load DOCX paragraphs through python-docx, avoiding docx2txt runtime
+    drift in the Docker worker image.
+    """
+    from docx import Document as DocxDocument
+
+    try:
+        docx_file = DocxDocument(file_path)
+    except Exception:
+        return []
+
+    paragraphs = [
+        paragraph.text.strip()
+        for paragraph in docx_file.paragraphs
+        if paragraph.text.strip()
+    ]
+
+    if not paragraphs:
+        return []
+
+    return [
+        Document(
+            page_content="\n\n".join(paragraphs),
+            metadata={"source_type": "docx"},
+        )
+    ]
+
+
 def _extract_pdf_tables(file_path: str) -> list[Document]:
     """
     Extract tables from a PDF using camelot (lattice flavor — works best
@@ -55,11 +153,10 @@ def _extract_pdf_tables(file_path: str) -> list[Document]:
     Each table row becomes its own Document chunk so the embedding model
     sees complete, structured rows instead of broken fragments.
     """
-    import camelot
-
     table_docs: list[Document] = []
 
     try:
+        import camelot
         tables = camelot.read_pdf(file_path, pages="all", flavor="lattice")
     except Exception:
         return table_docs
