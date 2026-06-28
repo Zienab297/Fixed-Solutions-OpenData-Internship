@@ -26,6 +26,13 @@ async def lifespan(app: FastAPI):
     logger.info("Creating database tables if they do not exist...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    logger.info("Applying lightweight schema compatibility migrations...")
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE rag.audit_logs ADD COLUMN IF NOT EXISTS query_text TEXT;"))
+        await conn.execute(text("ALTER TABLE rag.audit_logs ADD COLUMN IF NOT EXISTS answer_text TEXT;"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_query_id ON rag.audit_logs(query_id);"))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_domains_queried ON rag.audit_logs USING GIN(domains_queried);"))
         
     logger.info("Seeding system admin...")
     async with AsyncSessionLocal() as db:

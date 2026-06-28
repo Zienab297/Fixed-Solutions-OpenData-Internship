@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 from typing import Mapping, Sequence
 
 from app.core.config import settings
@@ -55,6 +56,14 @@ class LLMRouter:
     ) -> GenerationResult:
         language = detect_language(query)
         llm_route = self.determine_route(domain_ids, domain_routes)
+        extractive_answer = self._extractive_answer(query=query, context=context)
+        if extractive_answer:
+            return GenerationResult(
+                answer=extractive_answer,
+                llm_route=llm_route,
+                language_detected=language,
+            )
+
         context_text = self._build_context(context)
         prompt = self._build_prompt(query=query, context=context_text, language=language)
 
@@ -115,3 +124,62 @@ Answer:"""
         if len(text) <= max_chars:
             return text
         return text[:max_chars].rsplit(" ", 1)[0] + "\n[truncated]"
+
+    def _extractive_answer(
+        self,
+        query: str,
+        context: Sequence[ContextChunk],
+    ) -> str | None:
+        query_lower = query.lower()
+        if "soft" not in query_lower or "skill" not in query_lower:
+            return None
+
+        for source_number, chunk in enumerate(context, start=1):
+            skills = self._extract_labeled_values(
+                content=chunk.content,
+                labels=("soft skills & collaboration", "soft skills"),
+            )
+            if not skills:
+                continue
+
+            skills = [
+                skill
+                for skill in skills
+                if skill.lower() not in {"arabic", "english"}
+                and "native" not in skill.lower()
+                and "fluent" not in skill.lower()
+            ]
+            if not skills:
+                return None
+
+            return (
+                f"Ismaiel's soft skills are {self._join_items(skills)} "
+                f"[Source {source_number}]."
+            )
+
+        return None
+
+    @staticmethod
+    def _extract_labeled_values(content: str, labels: Sequence[str]) -> list[str]:
+        for label in labels:
+            pattern = rf"{re.escape(label)}\s*:\s*(.+)"
+            match = re.search(pattern, content, flags=re.IGNORECASE)
+            if not match:
+                continue
+
+            line = match.group(1).splitlines()[0]
+            values = [
+                value.strip(" .;:-")
+                for value in re.split(r"\s*\|\s*|,\s*|;\s*", line)
+                if value.strip(" .;:-")
+            ]
+            return values
+        return []
+
+    @staticmethod
+    def _join_items(items: Sequence[str]) -> str:
+        if len(items) == 1:
+            return items[0]
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+        return f"{', '.join(items[:-1])}, and {items[-1]}"

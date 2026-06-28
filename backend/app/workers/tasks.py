@@ -21,6 +21,8 @@ def process_document(self, document_id: str, domain_id: str, file_content: bytes
         import traceback
         print("TASK FAILED:", str(exc))
         print(traceback.format_exc())
+        if self.request.retries >= self.max_retries:
+            _mark_document_failed(document_id)
         raise self.retry(exc=exc)
 
 
@@ -42,6 +44,13 @@ def run_entity_extraction(self, document_id: str, domain_id: str):
         import asyncio
         extractor = GraphExtractor()
         asyncio.run(extractor.extract_and_store(document_id, domain_id))
+    except ValueError as exc:
+        if "does not match any known ontology domain" in str(exc):
+            print(
+                f"EXTRACTION SKIPPED document_id={document_id}: {exc}"
+            )
+            return {"status": "skipped", "reason": str(exc)}
+        raise self.retry(exc=exc)
     except Exception as exc:
         import traceback
         print(f"EXTRACTION FAILED document_id={document_id}:", str(exc))
@@ -156,3 +165,21 @@ def _judge_enabled() -> bool:
     from app.core.config import settings
 
     return settings.JUDGE_ENABLED
+
+
+def _mark_document_failed(document_id: str) -> None:
+    try:
+        from sqlalchemy import update
+
+        from app.core.database import SessionLocal
+        from app.models.db.models import Document
+
+        with SessionLocal() as db:
+            db.execute(
+                update(Document)
+                .where(Document.id == UUID(document_id))
+                .values(ingest_status="failed")
+            )
+            db.commit()
+    except Exception as exc:
+        print(f"Could not mark failed document_id={document_id}: {exc}")

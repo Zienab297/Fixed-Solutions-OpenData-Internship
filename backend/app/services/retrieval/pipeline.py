@@ -32,6 +32,7 @@ PATCHED (this revision) — wires in the rebuilt ner.py / graph_search.py:
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -56,6 +57,33 @@ _WEIGHTS = {
     "keyword":    (0.7,   1.0),
 }
 _GRAPH_BOOST = 0.05
+_LEXICAL_PHRASE_BOOST = 0.45
+_LEXICAL_TOKEN_BOOST = 0.02
+_LEXICAL_MAX_TOKEN_BOOST = 0.08
+_QUERY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "for",
+    "have",
+    "his",
+    "in",
+    "is",
+    "it",
+    "of",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "with",
+}
 
 
 @dataclass
@@ -186,7 +214,12 @@ class RetrievalPipeline:
         if graph_results:
             fused = _apply_graph_boost(fused, graph_results, _GRAPH_BOOST)
 
-        # Step 6 — Confidence
+        # Step 6 — Lexical rerank for direct section/value lookups
+        fused, lexical_reranked = _apply_lexical_rerank(fused, query)
+        if lexical_reranked and "lexical" not in signals_used:
+            signals_used.append("lexical")
+
+        # Step 7 — Confidence
         confidence = _calculate_confidence(fused, graph_results)
 
         return RetrievalResult(
@@ -271,6 +304,54 @@ def _apply_graph_boost(
             c["score"]     = c["rrf_score"]
             c["graph_confirmed"] = True
     return sorted(chunks, key=lambda c: c.get("rrf_score", 0.0), reverse=True)
+
+
+def _apply_lexical_rerank(chunks: List[dict], query: str) -> tuple[List[dict], bool]:
+    terms = _query_terms(query)
+    phrases = _query_phrases(terms)
+    if not terms:
+        return chunks, False
+
+    boosted = False
+    for chunk in chunks:
+        content = str(chunk.get("content", "")).lower()
+        phrase_hits = sum(1 for phrase in phrases if phrase in content)
+        token_hits = sum(1 for term in terms if term in content)
+        boost = (phrase_hits * _LEXICAL_PHRASE_BOOST) + min(
+            _LEXICAL_MAX_TOKEN_BOOST,
+            token_hits * _LEXICAL_TOKEN_BOOST,
+        )
+        if not boost:
+            continue
+
+        boosted = True
+        base_score = chunk.get("rrf_score", chunk.get("score", 0.0))
+        chunk["rrf_score"] = base_score + boost
+        chunk["score"] = chunk["rrf_score"]
+        chunk["lexical_boost"] = round(boost, 4)
+
+    if not boosted:
+        return chunks, False
+    return sorted(chunks, key=lambda c: c.get("rrf_score", 0.0), reverse=True), True
+
+
+def _query_terms(query: str) -> list[str]:
+    seen = set()
+    terms: list[str] = []
+    for token in re.findall(r"[a-zA-Z0-9]+", query.lower()):
+        if len(token) < 3 or token in _QUERY_STOPWORDS or token in seen:
+            continue
+        terms.append(token)
+        seen.add(token)
+    return terms
+
+
+def _query_phrases(terms: list[str]) -> list[str]:
+    return [
+        f"{left} {right}"
+        for left, right in zip(terms, terms[1:])
+        if left not in _QUERY_STOPWORDS and right not in _QUERY_STOPWORDS
+    ]
 
 
 def _calculate_confidence(chunks: List[dict], graph_results: List[dict]) -> float:

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Bot, Loader2, UserRound } from "lucide-react";
 
 import { askQuestion, createDomain, fetchDomains, fetchEvaluation } from "../api";
@@ -9,14 +9,17 @@ import type { Domain, EvaluationScores } from "../types";
 
 type Message = {
   id: string;
-  queryId: string;
+  queryId?: string;
   question: string;
-  answer: string;
+  answer?: string;
   route?: "local" | "api";
   language?: string;
-  evaluationStatus: "pending" | "completed";
+  answerStatus: "thinking" | "completed" | "error";
+  evaluationStatus: "idle" | "pending" | "completed";
   evaluation?: EvaluationScores | null;
   evaluationError?: string;
+  startedAt: number;
+  completedAt?: number;
 };
 
 const evaluationKeys = [
@@ -26,9 +29,18 @@ const evaluationKeys = [
   ["citation_accuracy", "Citations"],
 ] as const;
 
+const answerPhases = [
+  "Checking domain access",
+  "Searching embedded chunks",
+  "Extracting relevant context",
+  "Generating answer",
+  "Preparing judge evaluation",
+];
+
 export default function ChatPage() {
   const { token, hasRole } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [recentDomainIds, setRecentDomainIds] = useState<string[]>(() =>
     readRecentDomainIds(),
@@ -38,9 +50,11 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingDomains, setIsLoadingDomains] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const [error, setError] = useState("");
 
   const effectiveDomainId = useMemo(() => selectedDomainId, [selectedDomainId]);
+  const hasThinkingMessage = messages.some((message) => message.answerStatus === "thinking");
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -50,6 +64,16 @@ export default function ChatPage() {
     textarea.style.height = `${nextHeight}px`;
     textarea.style.overflowY = textarea.scrollHeight > 220 ? "auto" : "hidden";
   }, [question]);
+
+  useEffect(() => {
+    if (!hasThinkingMessage) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(interval);
+  }, [hasThinkingMessage]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [messages, now]);
 
   useEffect(() => {
     if (!token) return;
@@ -74,7 +98,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (!token) return;
     const pending = messages.filter(
-      (message) => message.queryId && message.evaluationStatus === "pending",
+      (message) =>
+        message.queryId &&
+        message.answerStatus === "completed" &&
+        message.evaluationStatus === "pending",
     );
     if (!pending.length) return;
 
@@ -82,6 +109,7 @@ export default function ChatPage() {
     const poll = async () => {
       await Promise.all(
         pending.map(async (message) => {
+          if (!message.queryId) return;
           try {
             const result = await fetchEvaluation(token, message.queryId);
             if (cancelled || result.status !== "completed") return;
@@ -128,37 +156,76 @@ export default function ChatPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!question.trim() || !token) return;
+    if (!question.trim() || !token || isSubmitting) return;
 
     const currentQuestion = question.trim();
+    const messageId = crypto.randomUUID();
+    const startedAt = Date.now();
     setQuestion("");
+    setNow(startedAt);
     setIsSubmitting(true);
     setError("");
+    setMessages((current) => [
+      ...current,
+      {
+        id: messageId,
+        question: currentQuestion,
+        answerStatus: "thinking",
+        evaluationStatus: "idle",
+        startedAt,
+      },
+    ]);
+
     if (effectiveDomainId) {
       setRecentDomainIds(rememberDomainId(effectiveDomainId));
     }
 
     try {
       const result = await askQuestion(token, currentQuestion, effectiveDomainId);
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          queryId: result.query_id,
-          question: currentQuestion,
-          answer: result.answer,
-          route: result.llm_route,
-          language: result.language_detected,
-          evaluationStatus: result.evaluation ? "completed" : "pending",
-          evaluation: result.evaluation ?? null,
-        },
-      ]);
+      const completedAt = Date.now();
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                queryId: result.query_id,
+                answer: result.answer,
+                route: result.llm_route,
+                language: result.language_detected,
+                answerStatus: "completed",
+                evaluationStatus: result.evaluation ? "completed" : "pending",
+                evaluation: result.evaluation ?? null,
+                completedAt,
+              }
+            : message,
+        ),
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Question failed");
+      const message = err instanceof Error ? err.message : "Question failed";
+      setError(message);
       setQuestion(currentQuestion);
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === messageId
+            ? {
+                ...item,
+                answer: message,
+                answerStatus: "error",
+                evaluationStatus: "idle",
+                completedAt: Date.now(),
+              }
+            : item,
+        ),
+      );
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function handleCreateDomain(name: string) {
@@ -169,17 +236,12 @@ export default function ChatPage() {
     setRecentDomainIds(rememberDomainId(domain.id));
   }
 
-  // Only admins can create domains from the chat page
   const canCreateDomain = hasRole("admin");
 
   return (
     <div className="mx-auto grid max-w-6xl gap-6">
       <section className="grid gap-2">
         <h1 className="text-3xl font-semibold tracking-normal">Chat</h1>
-        <p className="max-w-2xl text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-          Ask a question against a selected domain. The existing backend router
-          decides whether the request goes to the local or API LLM path.
-        </p>
       </section>
 
       <section className="surface rounded-lg p-4">
@@ -202,37 +264,14 @@ export default function ChatPage() {
                   <Bot size={22} />
                 </div>
                 <p className="mt-4 font-semibold">No messages yet</p>
-                <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                  Start with a question about the selected domain.
-                </p>
               </div>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-6">
               {messages.map((message) => (
-                <article key={message.id} className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-900">
-                      <UserRound size={17} />
-                    </div>
-                    <p className="rounded-lg border border-zinc-200 px-4 py-3 text-sm dark:border-zinc-800">
-                      {message.question}
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-950 text-white dark:bg-white dark:text-zinc-950">
-                      <Bot size={17} />
-                    </div>
-                    <div className="rounded-lg bg-zinc-50 px-4 py-3 text-sm leading-6 dark:bg-zinc-900">
-                      <p>{message.answer}</p>
-                      <p className="mt-3 text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
-                        {message.route} route · {message.language}
-                      </p>
-                      <EvaluationBadge message={message} />
-                    </div>
-                  </div>
-                </article>
+                <ChatMessage key={message.id} message={message} now={now} />
               ))}
+              <div ref={endRef} />
             </div>
           )}
         </div>
@@ -252,12 +291,13 @@ export default function ChatPage() {
               className="chat-composer-input min-h-11 flex-1 resize-none border-0 bg-transparent px-1 py-3 text-sm text-zinc-950 outline-none placeholder:text-zinc-400 dark:text-white"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={handleComposerKeyDown}
               placeholder="Ask a question"
               rows={1}
             />
             <button
               className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-zinc-950 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !question.trim()}
               type="submit"
               title="Send message"
             >
@@ -274,8 +314,80 @@ export default function ChatPage() {
   );
 }
 
+function ChatMessage({ message, now }: { message: Message; now: number }) {
+  const elapsed = formatElapsed((message.completedAt ?? now) - message.startedAt);
+  return (
+    <article className="space-y-4">
+      <div className="flex justify-end">
+        <div className="flex max-w-[78%] items-start gap-3">
+          <p className="whitespace-pre-wrap rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-6 dark:bg-zinc-900">
+            {message.question}
+          </p>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-900">
+            <UserRound size={17} />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-start">
+        <div className="flex max-w-[82%] items-start gap-3">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-950 text-white dark:bg-white dark:text-zinc-950">
+            <Bot size={17} />
+          </div>
+          <div className="min-w-0 rounded-2xl bg-zinc-50 px-4 py-3 text-sm leading-6 dark:bg-zinc-900">
+            {message.answerStatus === "thinking" ? (
+              <ThinkingState message={message} now={now} />
+            ) : message.answerStatus === "error" ? (
+              <p className="text-red-600 dark:text-red-300">{message.answer}</p>
+            ) : (
+              <>
+                <p className="whitespace-pre-wrap">{message.answer}</p>
+                <p className="mt-3 text-xs uppercase tracking-[0.08em] text-zinc-500 dark:text-zinc-400">
+                  Thought for {elapsed} - {message.route} route - {message.language}
+                </p>
+                <EvaluationBadge message={message} />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ThinkingState({ message, now }: { message: Message; now: number }) {
+  const elapsedMs = now - message.startedAt;
+  const phaseIndex = Math.min(
+    answerPhases.length - 1,
+    Math.floor(elapsedMs / 2500),
+  );
+  return (
+    <div className="grid gap-3">
+      <div className="inline-flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
+        <Loader2 className="animate-spin" size={15} />
+        <span>
+          {answerPhases[phaseIndex]} for {formatElapsed(elapsedMs)}
+        </span>
+      </div>
+      <div className="grid gap-2">
+        {answerPhases.slice(0, phaseIndex + 1).map((phase, index) => (
+          <div key={phase} className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                index === phaseIndex ? "bg-zinc-950 dark:bg-white" : "bg-zinc-300 dark:bg-zinc-700"
+              }`}
+            />
+            {phase}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function EvaluationBadge({ message }: { message: Message }) {
+  if (message.answerStatus !== "completed") return null;
+
   if (message.evaluationStatus === "pending") {
     return (
       <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
@@ -319,7 +431,6 @@ function EvaluationBadge({ message }: { message: Message }) {
   );
 }
 
-
 function averageScore(evaluation: EvaluationScores): number | null {
   const values = evaluationKeys
     .map(([key]) => evaluation[key])
@@ -328,8 +439,15 @@ function averageScore(evaluation: EvaluationScores): number | null {
   return values.reduce((sum, score) => sum + score, 0) / values.length;
 }
 
-
 function formatScore(score: number | null | undefined): string {
   if (typeof score !== "number") return "--";
   return `${Math.round(score * 100)}%`;
+}
+
+function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds}s`;
 }
