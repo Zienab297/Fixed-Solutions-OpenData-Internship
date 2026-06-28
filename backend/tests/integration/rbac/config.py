@@ -108,28 +108,28 @@ TEST_USERS = {
 #     any single-domain positive-hit test.
 SEED_DOCS = {
     "legal_only_doc": {
-        "doc_id": "TODO-doc-id-legal-only",
+        "doc_id": "ebcf4b35-aff2-4a65-baea-7fe12b21320e",
         "domains": ["legal"],
-        "unique_probe_term": "TODO-unique-token-legal-only",
-        "seeded": False,
+        "unique_probe_term": "ZZPROBE-LEGAL-7f3a91",
+        "seeded": True,
     },
     "medical_only_doc": {
-        "doc_id": "TODO-doc-id-medical-only",
+        "doc_id": "9704a75f-7004-4cc5-8dbb-0c520192056d",
         "domains": ["medical"],
-        "unique_probe_term": "TODO-unique-token-medical-only",
-        "seeded": False,
+        "unique_probe_term": "ZZPROBE-MEDICAL-c4e02d",
+        "seeded": True,
     },
     "shared_legal_medical_doc": {
-        "doc_id": "TODO-doc-id-shared-legal-medical",
+        "doc_id": "7a2853b9-9d55-4493-9199-08b3a90cbd76",
         "domains": ["legal", "medical"],
-        "unique_probe_term": "TODO-unique-token-shared-legal-medical",
-        "seeded": False,
+        "unique_probe_term": "ZZPROBE-SHARED-91bd6a",
+        "seeded": True,
     },
     "cs_only_doc": {
-        "doc_id": "TODO-doc-id-cs-only",  # fill in: this domain DOES have real docs
+        "doc_id": "TODO-doc-id-cs-only",  # still need this from seed script
         "domains": ["computer science"],
-        "unique_probe_term": "TODO-unique-token-cs-only",
-        "seeded": False,
+        "unique_probe_term": "ZZPROBE-CS-b8f14e",
+        "seeded": True,
     },
 }
 
