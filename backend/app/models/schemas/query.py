@@ -33,7 +33,7 @@ class EvaluationScores(BaseModel):
     rationale: Optional[dict] = None
 
 class QueryResponse(BaseModel):
-    query_id: UUID
+    query_id: Optional[UUID] = None 
     answer: str
     citations: List[CitationSource]
     graph_citations: Optional[List[GraphCitation]] = None

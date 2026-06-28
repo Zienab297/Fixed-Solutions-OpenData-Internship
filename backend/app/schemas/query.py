@@ -39,7 +39,7 @@ class EvaluationScores(BaseModel):
 
 
 class QueryResponse(BaseModel):
-    query_id: UUID
+    query_id: Optional[UUID] = None
     answer: str
     llm_route: RouteName
     language_detected: str
