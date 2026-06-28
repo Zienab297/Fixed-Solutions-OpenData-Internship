@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # Judge LLM (dedicated Ollama instance for async answer evaluation)
     JUDGE_ENABLED: bool = True
-    JUDGE_LLM_BASE_URL: str = "http://judge-ollama:11434"
+    JUDGE_LLM_BASE_URL: str = "http://localhost:11434"
     JUDGE_MODEL: str = "llama3.2:3b"
     JUDGE_TIMEOUT_SECONDS: float = 120.0
     JUDGE_SCORE_THRESHOLD: float = 0.7
