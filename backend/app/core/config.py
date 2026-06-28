@@ -86,4 +86,6 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
+    DOCUMENT_STORAGE_ROOT: str = "./services/storage/documents"
+
 settings = Settings()

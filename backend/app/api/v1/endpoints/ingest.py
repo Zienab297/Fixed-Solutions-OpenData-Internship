@@ -25,6 +25,7 @@ from app.repositories.document_repository import (
     DuplicateDocumentError,
     FileChangedError,
 )
+from app.services.storage.file_storage import save_document_file, delete_document_file
 from app.workers.tasks import process_document, process_web_crawl
 import base64
 
@@ -126,6 +127,16 @@ async def ingest_document(
             ).model_dump(mode="json"),
         )
 
+    # Persist the raw file to disk now that we have a document id, then
+    # record the relative path. Best-effort: if this fails, ingestion can
+    # still proceed — the document just won't have a preview available.
+    try:
+        relative_path = save_document_file(domain_id, doc.id, source_type, file_bytes)
+        await repo.set_file_path(doc.id, relative_path)
+        await db.commit()
+    except OSError as exc:
+        print("FILE STORAGE FAILED:", exc)
+
     try:
         job = process_document.delay(
             document_id=str(doc.id),
@@ -173,6 +184,11 @@ async def replace_document(
     internal_user_id = await _resolve_user_id(current_user, db)
     repo = DocumentRepository(db)
 
+    # Grab the old file's on-disk path *before* the row (and our only
+    # reference to it) is deleted.
+    old_doc = await repo.get_or_raise(old_document_id)
+    old_relative_path = old_doc.file_path
+
     try:
         new_doc = await repo.replace(
             old_document_id=old_document_id,
@@ -186,6 +202,16 @@ async def replace_document(
                             # the Celery worker reads the new document
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+    try:
+        relative_path = save_document_file(domain_id, new_doc.id, source_type, file_bytes)
+        await repo.set_file_path(new_doc.id, relative_path)
+        await db.commit()
+    except OSError as exc:
+        print("FILE STORAGE FAILED:", exc)
+
+    # Old document row + chunks are already gone (CASCADE); now drop its file.
+    delete_document_file(old_relative_path)
 
     job = process_document.delay(
         document_id=str(new_doc.id),
@@ -241,7 +267,4 @@ async def ingest_web(
 async def get_ingest_status(job_id: str):
     from app.workers.celery_app import celery_app
     result = celery_app.AsyncResult(job_id)
-    result_value = result.result
-    if isinstance(result_value, BaseException):
-        result_value = str(result_value)
-    return {"job_id": job_id, "status": result.status, "result": result_value}
+    return {"job_id": job_id, "status": result.status, "result": result.result}
