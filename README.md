@@ -40,6 +40,22 @@ Useful URLs:
 - API docs: http://localhost:8000/docs
 - Frontend placeholder: http://localhost:3000
 
+## Sprint 4 Security and Governance
+
+Production-readiness guidance is documented here:
+
+- [TLS and secrets management](docs/security/tls-and-secrets-management.md)
+- [AI governance and responsible use policy](docs/governance/responsible-use-policy.md)
+
+For a domain-backed HTTPS deployment, configure `.env` from `.env.production.example` and add the TLS compose overlay:
+
+```powershell
+docker compose -p rag-main `
+  -f infrastructure/docker/docker-compose.yml `
+  -f infrastructure/docker/docker-compose.tls.yml `
+  up -d --build
+```
+
 The Compose stack is intentionally minimal for Sprint 1. Vector DB, graph DB, auth, workers, and observability are shown in diagrams as integration points, but not locked into Docker services until their ADRs are approved.
 
 ## Backend Test Run

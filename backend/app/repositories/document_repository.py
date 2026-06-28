@@ -102,12 +102,24 @@ class DocumentRepository:
         # 1. Exact duplicate check
         exact = await self.find_by_hash(new_hash, domain_id)
         if exact is not None:
-            raise DuplicateDocumentError(exact.id)
+            if exact.ingest_status == "failed":
+                await self.db.execute(
+                    delete(Document).where(Document.id == exact.id)
+                )
+                await self.db.flush()
+            else:
+                raise DuplicateDocumentError(exact.id)
 
         # 2. Changed file check — same title, different hash
         existing = await self.find_by_title(title, domain_id)
         if existing is not None:
-            raise FileChangedError(existing.id, existing.content_hash, new_hash)
+            if existing.ingest_status == "failed":
+                await self.db.execute(
+                    delete(Document).where(Document.id == existing.id)
+                )
+                await self.db.flush()
+            else:
+                raise FileChangedError(existing.id, existing.content_hash, new_hash)
 
         doc = Document(
             domain_id=domain_id,

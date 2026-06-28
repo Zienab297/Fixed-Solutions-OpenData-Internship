@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./AuthContext";
 import AppShell from "./components/AppShell";
 import ChatPage from "./pages/ChatPage";
 import CreateUserPage from "./pages/CreateUserPage";
+import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import QualityPage from "./pages/QualityPage";
 import ObservabilityPage from "./pages/ObservabilityPage";
@@ -17,6 +18,16 @@ function AppRoutes({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => 
 
   return (
     <Routes>
+      <Route
+        path="/"
+        element={
+          <LandingPage
+            isAuthenticated={Boolean(token && user)}
+            theme={theme}
+            setTheme={setTheme}
+          />
+        }
+      />
       <Route
         path="/login"
         element={
@@ -33,7 +44,6 @@ function AppRoutes({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => 
           token && user ? (
             <AppShell user={user} theme={theme} setTheme={setTheme} onLogout={signOut}>
               <Routes>
-                <Route path="/" element={<Navigate to="/chat" replace />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/upload" element={<UploadPage />} />
                 <Route path="/quality" element={<QualityPage />} />

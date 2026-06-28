@@ -5,7 +5,6 @@ import {
   FileUp,
   LogOut,
   MessageSquareText,
-  Network,
   UserPlus,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -37,14 +36,15 @@ export default function AppShell({
       <div className="flex min-h-screen">
         <aside className="hidden w-72 border-r border-zinc-200 bg-zinc-50/80 px-5 py-5 dark:border-zinc-800 dark:bg-black/40 lg:flex lg:flex-col">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-zinc-950 text-white dark:bg-white dark:text-zinc-950">
-              <Network size={20} />
+            <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800">
+              <img
+                src="/assets/rag-logo-mark.png"
+                alt="RAG Workspace"
+                className="h-full w-full object-cover"
+              />
             </div>
             <div>
               <p className="text-sm font-semibold">RAG Workspace</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Sprint 1 console
-              </p>
             </div>
           </div>
 
@@ -141,14 +141,16 @@ export default function AppShell({
         <main className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-16 items-center justify-between border-b border-zinc-200 px-4 dark:border-zinc-800 lg:px-8">
             <div className="flex items-center gap-3 lg:hidden">
-              <div className="grid h-9 w-9 place-items-center rounded-lg bg-zinc-950 text-white dark:bg-white dark:text-zinc-950">
-                <Network size={18} />
+              <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800">
+                <img
+                  src="/assets/rag-logo-mark.png"
+                  alt="RAG Workspace"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <span className="text-sm font-semibold">RAG Workspace</span>
             </div>
-            <div className="hidden text-sm text-zinc-500 dark:text-zinc-400 lg:block">
-              Multi-domain retrieval, ingestion, and generation
-            </div>
+            <div className="hidden lg:block" />
             <ThemeToggle theme={theme} setTheme={setTheme} />
           </header>
 

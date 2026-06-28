@@ -135,13 +135,27 @@ async def _query_impl(
             )
             for c in table_result.chunks
         ]
+        query_id = await _record_query_and_enqueue_judge(
+            db=db,
+            current_user=current_user,
+            domain_uuids=domain_uuids,
+            request_domain_ids=request.domain_ids,
+            retrieval_chunks=table_result.chunks,
+            graph_citations=[],
+            query_text=request.query,
+            answer_text=table_result.answer,
+            llm_route="local",
+            confidence_score=table_result.confidence_score,
+        )
         return QueryResponse(
+            query_id=query_id,
             answer=table_result.answer,
             llm_route="local",
             language_detected=detect_language(request.query),
             citations=citations,
             confidence_score=table_result.confidence_score,
             signals_used=table_result.signals_used or ["table"],
+            evaluation=None,
         )
 
     # Retrieval — pipeline receives db so BM25 + Graph can query Postgres.
@@ -175,13 +189,28 @@ async def _query_impl(
             retrieval_result.signals_used = retrieval_result.signals_used + ["csv_row_fallback"]
         else:
             llm_route = LLMRouter().determine_route(request.domain_ids, domain_routes)
+            fallback_answer = "I don't have enough information in the selected documents to answer that."
+            query_id = await _record_query_and_enqueue_judge(
+                db=db,
+                current_user=current_user,
+                domain_uuids=domain_uuids,
+                request_domain_ids=request.domain_ids,
+                retrieval_chunks=[],
+                graph_citations=[],
+                query_text=request.query,
+                answer_text=fallback_answer,
+                llm_route=llm_route,
+                confidence_score=0.0,
+            )
             return QueryResponse(
-                answer="I don't have enough information in the selected documents to answer that.",
+                query_id=query_id,
+                answer=fallback_answer,
                 llm_route=llm_route,
                 language_detected=detect_language(request.query),
                 citations=[],
                 confidence_score=0.0,
                 signals_used=retrieval_result.signals_used,
+                evaluation=None,
             )
 
     # Build ContextChunks for LLMRouter
@@ -212,33 +241,15 @@ async def _query_impl(
             ),
         ) from exc
 
-    # Immutable per-query audit record. Judge results are stored separately.
-    query_id = uuid4()
-    audit_log = AuditLog(
-        query_id=query_id,
-        user_id=current_user.id,
-        domains_queried=domain_uuids,
-        retrieved_chunk_ids=_uuid_list(c.get("id") for c in retrieval_result.chunks),
-        graph_nodes_traversed=_uuid_list(
-            g.get("node_id") for g in (retrieval_result.graph_citations or [])
-        ),
-        llm_route=generation.llm_route,
-        confidence_score=retrieval_result.confidence_score,
-    )
-    db.add(audit_log)
-    await db.flush()
-    await db.commit()
-
-    judge_context = _build_judge_context(retrieval_result.chunks)
-    _fire_judge_task(
-        query_id=str(query_id),
-        audit_log_id=str(audit_log.id),
-        query=request.query,
-        context=judge_context,
-        graph_context=retrieval_result.graph_citations or [],
-        answer=generation.answer,
-        user_id=str(current_user.id),
-        domain_ids=request.domain_ids,
+    query_id = await _record_query_and_enqueue_judge(
+        db=db,
+        current_user=current_user,
+        domain_uuids=domain_uuids,
+        request_domain_ids=request.domain_ids,
+        retrieval_chunks=retrieval_result.chunks,
+        graph_citations=retrieval_result.graph_citations or [],
+        query_text=request.query,
+        answer_text=generation.answer,
         llm_route=generation.llm_route,
         confidence_score=retrieval_result.confidence_score,
     )
@@ -266,6 +277,52 @@ async def _query_impl(
         signals_used=retrieval_result.signals_used,
         evaluation=None,
     )
+
+
+async def _record_query_and_enqueue_judge(
+    db: AsyncSession,
+    current_user: User,
+    domain_uuids: list[UUID],
+    request_domain_ids: list[str],
+    retrieval_chunks: list[dict],
+    graph_citations: list[dict],
+    query_text: str,
+    answer_text: str,
+    llm_route: str,
+    confidence_score: float,
+) -> UUID:
+    # Immutable per-query audit record. Judge results are stored separately.
+    query_id = uuid4()
+    audit_log = AuditLog(
+        query_id=query_id,
+        query_text=query_text,
+        answer_text=answer_text,
+        user_id=current_user.id,
+        domains_queried=domain_uuids,
+        retrieved_chunk_ids=_uuid_list(c.get("id") for c in retrieval_chunks),
+        graph_nodes_traversed=_uuid_list(
+            g.get("node_id") or g.get("node_uuid") for g in graph_citations
+        ),
+        llm_route=llm_route,
+        confidence_score=confidence_score,
+    )
+    db.add(audit_log)
+    await db.flush()
+    await db.commit()
+
+    _fire_judge_task(
+        query_id=str(query_id),
+        audit_log_id=str(audit_log.id),
+        query=query_text,
+        context=_build_judge_context(retrieval_chunks),
+        graph_context=graph_citations,
+        answer=answer_text,
+        user_id=str(current_user.id),
+        domain_ids=request_domain_ids,
+        llm_route=llm_route,
+        confidence_score=confidence_score,
+    )
+    return query_id
 
 
 def _fire_judge_task(

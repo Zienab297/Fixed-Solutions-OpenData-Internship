@@ -3,13 +3,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import desc, select, text
+from sqlalchemy import delete, desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.db.models import AuditLog, DomainRole, EvaluationResult, User
+from app.models.db.models import AuditLog, Chunk, Document, Domain, DomainRole, EvaluationResult, User
 
 router = APIRouter(prefix="/evaluate", tags=["evaluate"])
 
@@ -43,10 +43,19 @@ async def quality_summary(
     )
 
     query = """
-        WITH expanded AS (
+        WITH domain_scope AS (
+            SELECT
+                d.id AS domain_id,
+                d.name AS domain_name
+            FROM rag.domains d
+            WHERE d.status = 'active'
+              AND (:domain_filter_disabled OR d.id::text = ANY(:domain_ids))
+        ),
+        expanded AS (
             SELECT
                 domain_id,
                 d.name AS domain_name,
+                er.query_id,
                 COALESCE(al.llm_route, 'unknown') AS llm_route,
                 er.faithfulness_score,
                 er.relevance_score,
@@ -61,19 +70,20 @@ async def quality_summary(
             WHERE (:domain_filter_disabled OR domain_id::text = ANY(:domain_ids))
         )
         SELECT
-            domain_id,
-            domain_name,
-            llm_route,
-            COUNT(*) AS evaluation_count,
-            AVG(faithfulness_score) AS faithfulness,
-            AVG(relevance_score) AS relevance,
-            AVG(completeness_score) AS completeness,
-            AVG(citation_accuracy_score) AS citation_accuracy,
-            SUM(CASE WHEN flagged THEN 1 ELSE 0 END) AS flagged_count,
-            MAX(created_at) AS last_evaluated_at
-        FROM expanded
-        GROUP BY domain_id, domain_name, llm_route
-        ORDER BY domain_name ASC, llm_route ASC
+            ds.domain_id,
+            ds.domain_name,
+            COALESCE(e.llm_route, 'none') AS llm_route,
+            COUNT(e.query_id) AS evaluation_count,
+            AVG(e.faithfulness_score) AS faithfulness,
+            AVG(e.relevance_score) AS relevance,
+            AVG(e.completeness_score) AS completeness,
+            AVG(e.citation_accuracy_score) AS citation_accuracy,
+            SUM(CASE WHEN e.flagged THEN 1 ELSE 0 END) AS flagged_count,
+            MAX(e.created_at) AS last_evaluated_at
+        FROM domain_scope ds
+        LEFT JOIN expanded e ON e.domain_id = ds.domain_id
+        GROUP BY ds.domain_id, ds.domain_name, e.llm_route
+        ORDER BY ds.domain_name ASC, e.llm_route ASC
     """
 
     rows = (
@@ -127,14 +137,15 @@ async def quality_summary(
             or row.last_evaluated_at > summary["last_evaluated_at"]
         ):
             summary["last_evaluated_at"] = row.last_evaluated_at
-        summary["route_breakdown"].append(
-            {
-                "llm_route": row.llm_route,
-                "evaluation_count": count,
-                "scores": route_scores,
-                "flagged_count": int(row.flagged_count or 0),
-            }
-        )
+        if count > 0:
+            summary["route_breakdown"].append(
+                {
+                    "llm_route": row.llm_route,
+                    "evaluation_count": count,
+                    "scores": route_scores,
+                    "flagged_count": int(row.flagged_count or 0),
+                }
+            )
 
     return {
         "domains": [
@@ -146,6 +157,192 @@ async def quality_summary(
             }
             for summary in summaries.values()
         ]
+    }
+
+
+@router.get("/quality/domains/{domain_id}")
+async def quality_domain_detail(
+    domain_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_domain_admin_access(domain_id, current_user, db)
+
+    domain = (
+        await db.execute(select(Domain).where(Domain.id == domain_id))
+    ).scalar_one_or_none()
+    if domain is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Domain not found")
+
+    history_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    al.id AS audit_log_id,
+                    al.query_id,
+                    al.query_text,
+                    al.answer_text,
+                    al.llm_route,
+                    al.confidence_score,
+                    al.created_at AS asked_at,
+                    er.id AS evaluation_result_id,
+                    er.judge_model,
+                    er.faithfulness_score,
+                    er.relevance_score,
+                    er.completeness_score,
+                    er.citation_accuracy_score,
+                    er.judge_rationale,
+                    er.flagged,
+                    er.created_at AS evaluated_at
+                FROM rag.audit_logs al
+                LEFT JOIN LATERAL (
+                    SELECT *
+                    FROM rag.evaluation_results er
+                    WHERE er.audit_log_id = al.id
+                    ORDER BY er.created_at DESC
+                    LIMIT 1
+                ) er ON TRUE
+                WHERE CAST(:domain_id AS uuid) = ANY(al.domains_queried)
+                ORDER BY al.created_at DESC
+                LIMIT 100
+                """
+            ),
+            {"domain_id": str(domain_id)},
+        )
+    ).fetchall()
+
+    document_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    d.id,
+                    d.title,
+                    d.source_type,
+                    d.source_url,
+                    d.ingest_status,
+                    d.ocr_used,
+                    d.language,
+                    d.metadata AS document_metadata,
+                    d.created_at,
+                    d.updated_at,
+                    COUNT(c.id) AS chunk_count
+                FROM rag.documents d
+                LEFT JOIN rag.chunks c ON c.document_id = d.id
+                WHERE d.domain_id = :domain_id
+                GROUP BY d.id
+                ORDER BY d.created_at DESC
+                """
+            ),
+            {"domain_id": str(domain_id)},
+        )
+    ).fetchall()
+
+    flagged_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT
+                    mq.id,
+                    mq.audit_log_id,
+                    mq.evaluation_result_id,
+                    mq.status,
+                    mq.reviewer_rationale,
+                    mq.created_at,
+                    mq.reviewed_at,
+                    er.query_id,
+                    er.judge_model,
+                    er.faithfulness_score,
+                    er.relevance_score,
+                    er.completeness_score,
+                    er.citation_accuracy_score,
+                    er.judge_rationale,
+                    er.flagged,
+                    er.created_at AS evaluated_at,
+                    al.query_text,
+                    al.answer_text,
+                    al.llm_route,
+                    al.confidence_score
+                FROM rag.moderation_queue mq
+                JOIN rag.evaluation_results er ON er.id = mq.evaluation_result_id
+                JOIN rag.audit_logs al ON al.id = mq.audit_log_id
+                WHERE mq.domain_id = :domain_id
+                ORDER BY mq.created_at DESC
+                LIMIT 100
+                """
+            ),
+            {"domain_id": str(domain_id)},
+        )
+    ).fetchall()
+
+    return {
+        "domain": {
+            "id": str(domain.id),
+            "name": domain.name,
+            "description": domain.description,
+            "status": domain.status,
+            "llm_route": domain.llm_route,
+        },
+        "history": [_history_item(row) for row in history_rows],
+        "documents": [
+            {
+                "id": str(row.id),
+                "title": row.title,
+                "source_type": row.source_type,
+                "source_url": row.source_url,
+                "ingest_status": row.ingest_status,
+                "ocr_used": row.ocr_used,
+                "language": row.language,
+                "metadata": row.document_metadata or {},
+                "chunk_count": int(row.chunk_count or 0),
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+            for row in document_rows
+        ],
+        "flagged": [_moderation_item(row, domain_id=domain_id, domain_name=domain.name) for row in flagged_rows],
+    }
+
+
+@router.delete("/quality/domains/{domain_id}/documents/{document_id}")
+async def delete_domain_document(
+    domain_id: UUID,
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _ensure_domain_admin_access(domain_id, current_user, db)
+
+    document = (
+        await db.execute(
+            select(Document).where(
+                Document.id == document_id,
+                Document.domain_id == domain_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    chunk_ids = list(
+        (
+            await db.execute(
+                select(Chunk.id).where(
+                    Chunk.document_id == document_id,
+                    Chunk.domain_id == domain_id,
+                )
+            )
+        ).scalars().all()
+    )
+    await _delete_qdrant_points(domain_id, chunk_ids)
+    await db.execute(delete(Document).where(Document.id == document_id))
+    await db.commit()
+
+    return {
+        "document_id": str(document_id),
+        "deleted": True,
+        "deleted_chunk_count": len(chunk_ids),
     }
 
 
@@ -191,6 +388,8 @@ async def list_moderation_items(
                     er.judge_rationale,
                     er.flagged,
                     er.created_at AS evaluated_at,
+                    al.query_text,
+                    al.answer_text,
                     al.llm_route,
                     al.confidence_score
                 FROM rag.moderation_queue mq
@@ -215,32 +414,7 @@ async def list_moderation_items(
     ).fetchall()
 
     return {
-        "items": [
-            {
-                "id": str(row.id),
-                "audit_log_id": str(row.audit_log_id),
-                "evaluation_result_id": str(row.evaluation_result_id),
-                "query_id": str(row.query_id),
-                "domain_id": str(row.domain_id) if row.domain_id else None,
-                "domain_name": row.domain_name,
-                "status": row.status,
-                "reviewer_rationale": row.reviewer_rationale,
-                "judge_model": row.judge_model,
-                "scores": {
-                    "faithfulness": row.faithfulness_score,
-                    "relevance": row.relevance_score,
-                    "completeness": row.completeness_score,
-                    "citation_accuracy": row.citation_accuracy_score,
-                },
-                "rationale": row.judge_rationale or {},
-                "flagged": row.flagged,
-                "llm_route": row.llm_route,
-                "confidence_score": row.confidence_score,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
-            }
-            for row in rows
-        ]
+        "items": [_moderation_item(row) for row in rows]
     }
 
 
@@ -374,6 +548,104 @@ async def _can_view_evaluation(
         )
     )
     return roles.scalar_one_or_none() is not None
+
+
+def _history_item(row) -> dict:
+    evaluation = None
+    if row.evaluation_result_id:
+        evaluation = {
+            "id": str(row.evaluation_result_id),
+            "judge_model": row.judge_model,
+            "faithfulness": row.faithfulness_score,
+            "relevance": row.relevance_score,
+            "completeness": row.completeness_score,
+            "citation_accuracy": row.citation_accuracy_score,
+            "rationale": row.judge_rationale or {},
+            "flagged": row.flagged,
+            "created_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
+        }
+
+    return {
+        "audit_log_id": str(row.audit_log_id),
+        "query_id": str(row.query_id),
+        "question": row.query_text,
+        "answer": row.answer_text,
+        "llm_route": row.llm_route,
+        "confidence_score": row.confidence_score,
+        "status": "completed" if evaluation else "pending",
+        "evaluation": evaluation,
+        "asked_at": row.asked_at.isoformat() if row.asked_at else None,
+    }
+
+
+def _moderation_item(row, domain_id: UUID | None = None, domain_name: str | None = None) -> dict:
+    resolved_domain_id = domain_id if domain_id is not None else row.domain_id
+    resolved_domain_name = domain_name if domain_name is not None else row.domain_name
+    return {
+        "id": str(row.id),
+        "audit_log_id": str(row.audit_log_id),
+        "evaluation_result_id": str(row.evaluation_result_id),
+        "query_id": str(row.query_id),
+        "question": row.query_text,
+        "answer": row.answer_text,
+        "domain_id": str(resolved_domain_id) if resolved_domain_id else None,
+        "domain_name": resolved_domain_name,
+        "status": row.status,
+        "reviewer_rationale": row.reviewer_rationale,
+        "judge_model": row.judge_model,
+        "scores": {
+            "faithfulness": row.faithfulness_score,
+            "relevance": row.relevance_score,
+            "completeness": row.completeness_score,
+            "citation_accuracy": row.citation_accuracy_score,
+        },
+        "rationale": row.judge_rationale or {},
+        "flagged": row.flagged,
+        "llm_route": row.llm_route,
+        "confidence_score": row.confidence_score,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "evaluated_at": row.evaluated_at.isoformat() if row.evaluated_at else None,
+        "reviewed_at": row.reviewed_at.isoformat() if getattr(row, "reviewed_at", None) else None,
+    }
+
+
+async def _ensure_domain_admin_access(
+    domain_id: UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    visible_domain_ids = await _visible_admin_domain_ids(current_user, db)
+    if visible_domain_ids is not None and domain_id not in visible_domain_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions for this domain",
+        )
+
+
+async def _delete_qdrant_points(domain_id: UUID, chunk_ids: list[UUID]) -> None:
+    if not chunk_ids:
+        return
+
+    from qdrant_client import AsyncQdrantClient
+    from qdrant_client.models import PointIdsList
+
+    collection = f"domain_{str(domain_id).replace('-', '_')}"
+    client = AsyncQdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+    try:
+        await client.delete(
+            collection_name=collection,
+            points_selector=PointIdsList(points=[str(chunk_id) for chunk_id in chunk_ids]),
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "Not found" in message or "doesn't exist" in message or "does not exist" in message:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Could not delete document vectors from Qdrant: {exc}",
+        ) from exc
+    finally:
+        await client.close()
 
 
 async def _visible_admin_domain_ids(

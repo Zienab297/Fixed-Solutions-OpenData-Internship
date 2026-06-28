@@ -69,3 +69,37 @@ def test_generate_uses_selected_api_route() -> None:
 
     assert result.llm_route == "api"
     assert result.answer == "api answer"
+
+
+def test_generate_extracts_soft_skills_section_before_llm_call() -> None:
+    router = LLMRouter(
+        local_llm=StubLLM("fallback"),
+        external_llm=StubLLM("fallback"),
+    )
+
+    result = asyncio.run(
+        router.generate(
+            query="what is ismaiel soft skills ?",
+            context=[
+                ContextChunk(content="Education and certificates", document_title="CV"),
+                ContextChunk(
+                    content=(
+                        "SOFT SKILLS & COLLABORATION: Problem Solving | "
+                        "Critical Thinking | Communication | Cross-Functional "
+                        "Collaboration | Adaptability | Presentation | "
+                        "Arabic ( Native ) | English ( Fluent )"
+                    ),
+                    document_title="CV",
+                ),
+            ],
+            domain_ids=["cv"],
+            domain_routes={"cv": "local"},
+        )
+    )
+
+    assert result.llm_route == "local"
+    assert "Problem Solving" in result.answer
+    assert "Critical Thinking" in result.answer
+    assert "Cross-Functional Collaboration" in result.answer
+    assert "Arabic" not in result.answer
+    assert "[Source 2]" in result.answer
