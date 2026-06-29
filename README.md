@@ -653,3 +653,92 @@ Possible `status` values: `PENDING`, `STARTED`, `SUCCESS`, `FAILURE`, `RETRY`
 | `Could not validate credentials` | Token expired | Re-run the get-token request to refresh |
 | `paddleocr not found` | PaddlePaddle installed after requirements | Recreate the conda env, install PaddlePaddle first, then `pip install -r requirements.txt` |
 | `OCR produces empty output` | PDF page has no detectable image content | Normal — pages without images skip OCR automatically |
+
+
+# RBAC Isolation Test Suite
+
+Automated pytest suite testing RBAC domain isolation across the hybrid RAG
+pipeline, against a real Keycloak realm (not DEV_MODE).
+
+## What this covers
+
+| File | Tests |
+|---|---|
+| `test_cross_domain_isolation.py` | Zero-hit leakage checks across domains, at depth, and on direct doc fetch |
+| `test_multi_role_union.py` | Multi-domain users get the union of access, not first-match-only, and role order doesn't matter |
+| `test_shared_document_boundary.py` | Docs tagged to multiple domains don't over-expose domain tags or graph neighbors |
+| `test_retrieval_path_parity.py` | BM25, vector, and graph paths each enforce filtering independently *before* RRF fusion |
+| `test_token_staleness.py` | Revoked roles take effect promptly via session logout; documents the long-lived-token edge case |
+
+## Before running
+
+This suite is config-driven and currently full of `TODO` placeholders — it
+will not pass as-is. You need to:
+
+1. **`config.py`**
+   - Confirm `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID` match your setup.
+   - Confirm the realm role naming convention (`domain:hr` etc. is a guess —
+     swap to whatever you actually use).
+   - Fill in `ENDPOINTS` with real route paths. The three per-path debug
+     routes (`query_bm25_only`, `query_vector_only`, `query_graph_only`)
+     probably don't exist yet — see note below.
+   - Fill in `TEST_USERS` with real Keycloak test accounts (create dedicated
+     ones, don't reuse real users — `revocable_user` especially gets its
+     roles mutated repeatedly).
+   - Fill in `SEED_DOCS` with real doc_ids and unique probe terms. Probe
+     terms should be tokens that exist in exactly one seed doc and nowhere
+     else in the corpus, so a hit on that term is unambiguous evidence of
+     that specific doc leaking.
+
+2. **Admin credentials** — set via env vars rather than hardcoding:
+   ```bash
+   export KEYCLOAK_ADMIN_USER=admin
+   export KEYCLOAK_ADMIN_PASSWORD=...
+   export KEYCLOAK_BASE_URL=https://your-keycloak-host
+   export RAG_API_BASE_URL=https://your-api-host
+   ```
+   The admin account needs `manage-users` on the target realm to grant/revoke
+   roles and force session logout (used by the union and staleness tests).
+
+3. **Seed data** — load `SEED_DOCS` into the actual corpus (Qdrant + AGE +
+   whatever feeds BM25) via your normal ingestion path, tagged to the domains
+   listed in config, *before* running the suite.
+
+## On the per-path debug endpoints
+
+`test_retrieval_path_parity.py` is the test most likely to catch a real bug
+(filter clause drifting out of sync on one signal during a refactor), but it
+needs a way to query BM25/vector/graph in isolation. If those routes don't
+exist, the tests `skip` gracefully rather than failing — but that means this
+risk is currently *unverifiable* through the API surface alone.
+
+Worth considering: a debug-only route (gated behind an admin role or a
+feature flag disabled in prod) that returns each signal's raw, filtered
+candidate list pre-fusion. Even temporary, for this test pass.
+
+## Running
+
+```bash
+pip install -r requirements.txt
+pytest rbac_tests/ -v
+```
+
+Run a single file:
+```bash
+pytest rbac_tests/test_cross_domain_isolation.py -v
+```
+
+## Notes on design choices
+
+- **Absence assertions, not rank assertions.** Every leak check asserts a
+  forbidden doc/term doesn't appear at all, checked against both structured
+  `doc_id` fields and the raw response text (in case a field gets renamed
+  and a structured check alone would silently stop testing anything).
+- **Session-scoped token caching** for stable users, but the staleness and
+  role-union tests use a dedicated `revocable_user` and explicitly bust the
+  cache after mutating roles, so they don't create flaky cross-test
+  interference if run in parallel (`pytest -n auto`, if you add
+  `pytest-xdist` later).
+- **Cleanup at the end of mutating tests** restores the fixture user's
+  baseline role so a failed run doesn't leave Keycloak in a state that
+  breaks the next run.

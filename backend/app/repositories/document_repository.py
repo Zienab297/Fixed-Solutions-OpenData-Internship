@@ -89,6 +89,7 @@ class DocumentRepository:
         author: Optional[str] = None,
         language: Optional[str] = None,
         metadata: Optional[dict] = None,
+        file_path: Optional[str] = None,
     ) -> Document:
         """
         Insert a new document record.
@@ -102,24 +103,12 @@ class DocumentRepository:
         # 1. Exact duplicate check
         exact = await self.find_by_hash(new_hash, domain_id)
         if exact is not None:
-            if exact.ingest_status == "failed":
-                await self.db.execute(
-                    delete(Document).where(Document.id == exact.id)
-                )
-                await self.db.flush()
-            else:
-                raise DuplicateDocumentError(exact.id)
+            raise DuplicateDocumentError(exact.id)
 
         # 2. Changed file check — same title, different hash
         existing = await self.find_by_title(title, domain_id)
         if existing is not None:
-            if existing.ingest_status == "failed":
-                await self.db.execute(
-                    delete(Document).where(Document.id == existing.id)
-                )
-                await self.db.flush()
-            else:
-                raise FileChangedError(existing.id, existing.content_hash, new_hash)
+            raise FileChangedError(existing.id, existing.content_hash, new_hash)
 
         doc = Document(
             domain_id=domain_id,
@@ -132,6 +121,7 @@ class DocumentRepository:
             ingested_by=ingested_by,
             language=language,
             metadata_=metadata or {},
+            file_path=file_path,
         )
         self.db.add(doc)
         await self.db.flush()
@@ -154,6 +144,7 @@ class DocumentRepository:
         author: Optional[str] = None,
         language: Optional[str] = None,
         metadata: Optional[dict] = None,
+        file_path: Optional[str] = None,
     ) -> Document:
         """
         Hard delete the old document (and its chunks via CASCADE),
@@ -169,6 +160,16 @@ class DocumentRepository:
                 f"Document {old_document_id} does not belong to domain {domain_id}"
             )
 
+        # Guard against colliding with a DIFFERENT, unrelated document that
+        # already has this exact content in this domain. Deleting old_doc
+        # only frees up old_doc's own hash slot — if some other document
+        # already has the new content's hash, the unique constraint on
+        # (content_hash, domain_id) would still reject the insert below.
+        new_hash = Document.hash_content(file_bytes)
+        colliding = await self.find_by_hash(new_hash, domain_id)
+        if colliding is not None and colliding.id != old_document_id:
+            raise DuplicateDocumentError(colliding.id)
+
         # Hard delete — chunks cascade via FK ondelete="CASCADE"
         await self.db.execute(
             delete(Document).where(Document.id == old_document_id)
@@ -176,7 +177,6 @@ class DocumentRepository:
         await self.db.flush()
 
         # Insert fresh
-        new_hash = Document.hash_content(file_bytes)
         new_doc = Document(
             domain_id=domain_id,
             title=title,
@@ -188,6 +188,7 @@ class DocumentRepository:
             ingested_by=ingested_by,
             language=language,
             metadata_=metadata or {},
+            file_path=file_path,
         )
         self.db.add(new_doc)
         await self.db.flush()
@@ -222,6 +223,29 @@ class DocumentRepository:
         q = q.order_by(Document.created_at.desc()).limit(limit).offset(offset)
         result = await self.db.execute(q)
         return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # File path
+    # ------------------------------------------------------------------
+
+    async def set_file_path(self, document_id: UUID, file_path: str) -> None:
+        await self.db.execute(
+            update(Document).where(Document.id == document_id).values(file_path=file_path)
+        )
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete(self, document_id: UUID) -> Optional[str]:
+        """Hard delete a document (chunks cascade via FK). Returns its
+        file_path so the caller can also remove the file from disk."""
+        doc = await self.get(document_id)
+        if doc is None:
+            return None
+        file_path = doc.file_path
+        await self.db.execute(delete(Document).where(Document.id == document_id))
+        return file_path
 
     # ------------------------------------------------------------------
     # Status transitions

@@ -191,6 +191,7 @@ class Document(Base):
     ocr_used: Mapped[bool] = mapped_column(Boolean, server_default="false")
     language: Mapped[Optional[str]] = mapped_column(String(10))
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    file_path: Mapped[Optional[str]] = mapped_column(String(1000))  # relative path on disk; set after save_document_file()
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default="{}")
     ingested_by: Mapped[Optional[UUID]] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("rag.users.id")

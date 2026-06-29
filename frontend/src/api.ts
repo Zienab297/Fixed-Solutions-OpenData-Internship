@@ -220,9 +220,21 @@ export function fetchQualityDomainDetail(
   token: string,
   domainId: string,
 ): Promise<QualityDomainDetail> {
-  return apiRequest<QualityDomainDetail>(`/evaluate/quality/domains/${domainId}`, {
-    token,
-  });
+  return apiRequest<QualityDomainDetail>(
+    `/evaluate/quality/domains/${encodeURIComponent(domainId)}`,
+    { token },
+  );
+}
+
+export function deleteDomainDocument(
+  token: string,
+  domainId: string,
+  documentId: string,
+): Promise<{ id: string; deleted: boolean }> {
+  return apiRequest<{ id: string; deleted: boolean }>(
+    `/documents/${encodeURIComponent(documentId)}?domain_id=${encodeURIComponent(domainId)}`,
+    { method: "DELETE", token },
+  );
 }
 
 export function fetchModerationItems(
@@ -249,20 +261,6 @@ export function updateModerationItem(
       reviewer_rationale: reviewerRationale,
     }),
   });
-}
-
-export function deleteDomainDocument(
-  token: string,
-  domainId: string,
-  documentId: string,
-): Promise<{ document_id: string; deleted: boolean; deleted_chunk_count: number }> {
-  return apiRequest<{ document_id: string; deleted: boolean; deleted_chunk_count: number }>(
-    `/evaluate/quality/domains/${domainId}/documents/${documentId}`,
-    {
-      method: "DELETE",
-      token,
-    },
-  );
 }
 
 export function uploadDocument(
@@ -296,4 +294,94 @@ export function fetchIngestionJob(
       typeof response.result === "string" ? response.result : undefined,
     updated_at: new Date().toISOString(),
   }));
+}
+
+export type RagDocument = {
+  id: string;
+  domain_id: string;
+  title: string;
+  source_type: string;
+  ingest_status: IngestionStatus;
+  ocr_used: boolean;
+  language?: string | null;
+  has_file: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+type BackendRagDocument = Omit<RagDocument, "ingest_status"> & {
+  ingest_status: string;
+};
+
+// The backend's /documents endpoint returns ingest_status already in our
+// own IngestionStatus vocabulary ("pending" | "processing" | "completed" |
+// "failed") -- it reads straight off the Document row, set by
+// DocumentRepository/DocumentProcessor using those exact words. This is a
+// DIFFERENT vocabulary from Celery's raw task states (PENDING, STARTED,
+// SUCCESS, FAILURE, RETRY) that normalizeIngestionStatus exists to
+// translate for the /ingest/status job-polling endpoints. Running a
+// document's already-correct "completed" through normalizeIngestionStatus
+// silently turned it into "pending", since "completed" doesn't match any
+// of that function's recognized Celery-state strings and falls through to
+// its default. fetchDocuments must NOT call normalizeIngestionStatus.
+const VALID_INGESTION_STATUSES = new Set<IngestionStatus>([
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+]);
+
+function toIngestionStatusDirect(status: string): IngestionStatus {
+  return VALID_INGESTION_STATUSES.has(status as IngestionStatus)
+    ? (status as IngestionStatus)
+    : "pending";
+}
+
+export async function fetchDocuments(token: string, domainId: string): Promise<RagDocument[]> {
+  const documents = await apiRequest<BackendRagDocument[]>(
+    `/documents?domain_id=${encodeURIComponent(domainId)}`,
+    { token },
+  );
+  return documents.map((doc) => ({
+    ...doc,
+    ingest_status: toIngestionStatusDirect(doc.ingest_status),
+  }));
+}
+
+export function deleteDocument(
+  token: string,
+  documentId: string,
+): Promise<{ id: string; deleted: boolean }> {
+  return apiRequest(`/documents/${documentId}`, { method: "DELETE", token });
+}
+
+// GET /documents/{id}/file requires a Bearer token, so it can't be used
+// directly as an <iframe>/<img> src. Fetch as a Blob and turn it into an
+// object URL in the component instead.
+export async function fetchDocumentFileBlob(token: string, documentId: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/documents/${documentId}/file`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new ApiError(`Could not load file preview (status ${response.status})`, response.status);
+  }
+  return response.blob();
+}
+
+export function replaceDocument(
+  token: string,
+  oldDocumentId: string,
+  domainId: string,
+  file: File,
+): Promise<IngestionJob> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("domain_id", domainId);
+  formData.append("old_document_id", oldDocumentId);
+
+  return apiRequest<BackendIngestResponse>("/ingest/replace", {
+    method: "POST",
+    token,
+    body: formData,
+  }).then((response) => toIngestionJob(response, { domainId, filename: file.name }));
 }
