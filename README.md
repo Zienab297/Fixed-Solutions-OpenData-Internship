@@ -19,7 +19,10 @@ This package covers the assigned Sprint 1 tasks:
 backend/
 docs/
   adr/
+  admin/
   architecture/
+  operations/
+  user/
 frontend/
 infrastructure/
   docker/
@@ -46,6 +49,9 @@ Production-readiness guidance is documented here:
 
 - [TLS and secrets management](docs/security/tls-and-secrets-management.md)
 - [AI governance and responsible use policy](docs/governance/responsible-use-policy.md)
+- [Runbooks and on-call playbook](docs/operations/runbooks-and-on-call-playbook.md)
+- [End-user documentation](docs/user/end-user-documentation.md)
+- [Admin guide and API developer guide](docs/admin/admin-guide-and-api-developer-guide.md)
 
 For a domain-backed HTTPS deployment, configure `.env` from `.env.production.example` and add the TLS compose overlay:
 
