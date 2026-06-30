@@ -1,0 +1,35 @@
+{{- if .Values.observability.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-api
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    release: prometheus # Prometheus Operator release selector
+spec:
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-workers
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: workers-metrics
+  endpoints:
+    - port: metrics
+      path: /
+      interval: {{ .Values.observability.serviceMonitor.interval }}
+{{- end }}

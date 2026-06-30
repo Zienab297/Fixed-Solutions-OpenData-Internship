@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-ollama-judge
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-judge
+spec:
+  serviceName: {{ include "rag-platform.fullname" . }}-ollama-judge
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama-judge
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama-judge
+    spec:
+      containers:
+        - name: ollama
+          image: "{{ .Values.ollama.judge.image.repository }}:{{ .Values.ollama.judge.image.tag }}"
+          imagePullPolicy: {{ .Values.ollama.judge.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: JUDGE_MODEL
+              value: "llama3.2:3b"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ollama serve &
+              sleep 10;
+              ollama show "$JUDGE_MODEL" >/dev/null 2>&1 || ollama pull "$JUDGE_MODEL" || echo "warning: failed to pull $JUDGE_MODEL";
+              wait
+          resources:
+            requests:
+              cpu: {{ .Values.ollama.judge.resources.requests.cpu | quote }}
+              memory: {{ .Values.ollama.judge.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.ollama.judge.resources.limits.cpu | quote }}
+              memory: {{ .Values.ollama.judge.resources.limits.memory | quote }}
+              {{- if .Values.ollama.judge.gpu.enabled }}
+              nvidia.com/gpu: {{ .Values.ollama.judge.gpu.limits | default "1" | quote }}
+              {{- end }}
+          volumeMounts:
+            - name: model-data
+              mountPath: /root/.ollama
+  volumeClaimTemplates:
+    - metadata:
+        name: model-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.judge.persistence.size | quote }}

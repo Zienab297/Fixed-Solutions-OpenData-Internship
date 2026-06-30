@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-config
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+data:
+  QDRANT_HOST: "{{ .Release.Name }}-qdrant"
+  QDRANT_PORT: "6333"
+  
+  NER_SERVICE_URL: "http://{{ include "rag-platform.fullname" . }}-ner:8001"
+  
+  AGE_HOST: "{{ include "rag-platform.fullname" . }}-age"
+  AGE_PORT: "5432"
+  AGE_DB: "{{ .Values.age.auth.database }}"
+  AGE_USER: "{{ .Values.age.auth.username }}"
+  AGE_GRAPH_NAME: "rag_ontology"
+  AGE_POOL_MIN_SIZE: "2"
+  AGE_POOL_MAX_SIZE: "10"
+
+  OLLAMA_BASE_URL: "http://{{ include "rag-platform.fullname" . }}-ollama-main:11434"
+  LOCAL_LLM_BASE_URL: "http://{{ include "rag-platform.fullname" . }}-ollama-main:11434/v1"
+  LOCAL_LLM_MODEL: "llama3.2:3b"
+  
+  JUDGE_LLM_BASE_URL: "http://{{ include "rag-platform.fullname" . }}-ollama-judge:11434"
+  JUDGE_MODEL: "llama3.2:3b"
+  JUDGE_ENABLED: "true"
+  JUDGE_SCORE_THRESHOLD: "{{ .Values.ollama.judge.scoreThreshold | default 0.7 }}"
+  
+  EMBEDDING_MODEL: "bge-m3:latest"
+  EMBEDDING_DIMENSION: "1024"
+
+  OCR_LANG: "ar"
+  OCR_DEVICE: {{ if .Values.workers.ingestion.gpu.enabled }}"gpu"{{ else }}"cpu"{{ end }}
+  
+  KEYCLOAK_URL: "http://{{ include "rag-platform.fullname" . }}-keycloak:8080"
+  KEYCLOAK_REALM: "rag"
+  KEYCLOAK_CLIENT_ID: "rag-api"
+  
+  DEV_MODE: "false"
+  MOCK_LLM_RESPONSES: "false"
+  
+  # Observability settings
+  PROMETHEUS_WORKER_METRICS_PORT: "9090"

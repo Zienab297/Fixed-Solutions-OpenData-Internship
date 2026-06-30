@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-worker-eval
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-eval
+    app.kubernetes.io/part-of: celery-worker
+spec:
+  replicas: {{ .Values.workers.evaluation.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker-eval
+      app.kubernetes.io/part-of: celery-worker
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-eval
+        app.kubernetes.io/part-of: celery-worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - -P
+            - solo
+            - --concurrency=1
+            - -Q
+            - evaluation
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "rag-platform.fullname" . }}-config
+            - secretRef:
+                name: {{ include "rag-platform.fullname" . }}-secrets
+          env:
+            - name: WORKER_SERVICE_NAME
+              value: "rag-worker-evaluation"
+            - name: PROMETHEUS_WORKER_METRICS_PORT
+              value: "9090"
+          resources:
+            {{- toYaml .Values.workers.evaluation.resources | nindent 12 }}

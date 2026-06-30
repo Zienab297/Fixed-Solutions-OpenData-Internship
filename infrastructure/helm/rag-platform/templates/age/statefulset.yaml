@@ -1,0 +1,56 @@
+{{- if .Values.age.enabled -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-age
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: graph-db
+spec:
+  serviceName: {{ include "rag-platform.fullname" . }}-age
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: graph-db
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: graph-db
+    spec:
+      containers:
+        - name: age
+          image: "{{ .Values.age.image.repository }}:{{ .Values.age.image.tag }}"
+          imagePullPolicy: {{ .Values.age.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.age.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.age.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "rag-platform.fullname" . }}-secrets
+                  key: AGE_PASSWORD
+          resources:
+            {{- toYaml .Values.age.resources | nindent 12 }}
+          volumeMounts:
+            - name: age-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: age-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.age.persistence.size | quote }}
+{{- end }}

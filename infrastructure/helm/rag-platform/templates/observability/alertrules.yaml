@@ -1,0 +1,41 @@
+{{- if .Values.observability.alerting.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-slo-alerts
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    role: alert-rules
+spec:
+  groups:
+    - name: rag-slo-alerts
+      rules:
+        # P95 Query Latency Alert
+        - alert: RAGQueryLatencySLOBreach
+          expr: histogram_quantile(0.95, sum(rate(rag_query_latency_seconds_bucket[5m])) by (le)) > {{ .Values.observability.alerting.queryLatencyP95ThresholdSeconds }}
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "RAG Query Latency P95 is breaching SLO"
+            description: 'The 95th percentile query response time has breached the {{ .Values.observability.alerting.queryLatencyP95ThresholdSeconds }}s threshold (currently {{`{{ $value | printf "%.2f" }}`}}s) for more than 2 minutes.'
+        # Evaluation Queue Depth Alert
+        - alert: RAGEvaluationQueueBacklog
+          expr: 'rag_celery_queue_depth{queue="evaluation"} > 50'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RAG Evaluation Queue backlog is accumulating"
+            description: 'There are currently {{`{{ $value }}`}} tasks waiting in the evaluation queue for more than 5 minutes.'
+
+        # Ingestion Task Failure Alert
+        - alert: RAGCeleryTaskFailures
+          expr: 'rate(rag_celery_task_failures_total[5m]) > 0.05'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RAG Celery tasks are failing"
+            description: 'Celery tasks are failing at a rate of {{`{{ $value | printf "%.2f" }}`}} per second over the last 5 minutes.'
+{{- end }}

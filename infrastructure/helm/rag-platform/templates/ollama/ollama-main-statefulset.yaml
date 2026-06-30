@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-ollama-main
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama-main
+spec:
+  serviceName: {{ include "rag-platform.fullname" . }}-ollama-main
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama-main
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama-main
+    spec:
+      containers:
+        - name: ollama
+          image: "{{ .Values.ollama.main.image.repository }}:{{ .Values.ollama.main.image.tag }}"
+          imagePullPolicy: {{ .Values.ollama.main.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: LOCAL_LLM_MODEL
+              value: "llama3.2:3b"
+            - name: EMBEDDING_MODEL
+              value: "bge-m3:latest"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ollama serve &
+              sleep 10;
+              for model in "$LOCAL_LLM_MODEL" "$EMBEDDING_MODEL"; do
+                ollama show "$model" >/dev/null 2>&1 || ollama pull "$model" || echo "warning: failed to pull $model";
+              done;
+              wait
+          resources:
+            requests:
+              cpu: {{ .Values.ollama.main.resources.requests.cpu | quote }}
+              memory: {{ .Values.ollama.main.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.ollama.main.resources.limits.cpu | quote }}
+              memory: {{ .Values.ollama.main.resources.limits.memory | quote }}
+              {{- if .Values.ollama.main.gpu.enabled }}
+              nvidia.com/gpu: {{ .Values.ollama.main.gpu.limits | default "1" | quote }}
+              {{- end }}
+          volumeMounts:
+            - name: model-data
+              mountPath: /root/.ollama
+  volumeClaimTemplates:
+    - metadata:
+        name: model-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        {{- if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ollama.main.persistence.size | quote }}

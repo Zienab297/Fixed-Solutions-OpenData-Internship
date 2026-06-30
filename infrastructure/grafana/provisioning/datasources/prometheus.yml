@@ -1,3 +1,4 @@
+#infrastructure/docker/grafana/provisioning/prometheus
 apiVersion: 1
 
 datasources:

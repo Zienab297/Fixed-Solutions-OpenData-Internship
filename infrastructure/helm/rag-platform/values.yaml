@@ -1,0 +1,274 @@
+# Default values for rag-platform.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  domain: rag.local
+  storageClass: ""
+
+# -- PostgreSQL Subchart Configuration (Application Metadata Store)
+postgresql:
+  image:
+    repository: bitnamilegacy/postgresql
+    tag: "16.3.0-debian-12-r13"
+  enabled: true
+  auth:
+    database: ragdb
+    username: raguser
+    password: ragpassword
+  persistence:
+    enabled: true
+    size: 10Gi
+  primary:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+# -- Redis Subchart Configuration (Celery Broker & Result Backend)
+redis:
+  image:
+    repository: bitnamilegacy/redis
+    tag: "7.2.4-debian-12-r9"
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: redispassword
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# -- Qdrant Subchart Configuration (Vector Database)
+qdrant:
+  enabled: true
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# -- Dedicated Apache AGE StatefulSet Configuration (Graph DB)
+age:
+  enabled: true
+  image:
+    repository: apache/age
+    tag: release_PG16_1.5.0
+    pullPolicy: IfNotPresent
+  auth:
+    database: agedb
+    username: ageuser
+    password: agepassword
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+# -- API Server Configuration
+api:
+  replicaCount: 2
+  image:
+    repository: rag-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+  # Secret key for JWT signing. Overwrite in production.
+  secretKey: "change-me-in-production-use-a-long-random-string"
+  adminEmail: "admin@example.com"
+  adminPassword: "changeme123"
+
+# -- Frontend Configuration
+frontend:
+  replicaCount: 2
+  image:
+    repository: rag-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+# -- Celery Workers Configuration
+workers:
+  ingestion:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 85
+  evaluation:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    hpa:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 85
+
+# -- GLiNER NER Service Configuration
+ner:
+  replicaCount: 1
+  image:
+    repository: rag-ner
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8001
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# -- Ollama (Local Generation & Embeddings) Configurations
+ollama:
+  main:
+    image:
+      repository: ollama/ollama
+      tag: latest
+      pullPolicy: IfNotPresent
+    persistence:
+      size: 20Gi
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    resources:
+      requests:
+        cpu: "2"
+        memory: 4Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+  judge:
+    image:
+      repository: ollama/ollama
+      tag: latest
+      pullPolicy: IfNotPresent
+    scoreThreshold: 0.7
+    persistence:
+      size: 20Gi
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+# -- Keycloak Bundled Identity Provider Configuration
+keycloak:
+  enabled: true
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: 24.0.1
+    pullPolicy: IfNotPresent
+  auth:
+    adminUser: admin
+    adminPassword: keycloakpassword
+    clientSecret: keycloakclientsecret
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# -- Ingress Settings (Nginx Ingress Controller)
+ingress:
+  enabled: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  tls:
+    enabled: false
+    secretName: rag-tls-secret
+
+# -- Observability (Prometheus / Grafana Operator Scraping)
+observability:
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+  alerting:
+    enabled: true
+    queryLatencyP95ThresholdSeconds: 5.0
+    evalLatencyP95ThresholdSeconds: 30.0

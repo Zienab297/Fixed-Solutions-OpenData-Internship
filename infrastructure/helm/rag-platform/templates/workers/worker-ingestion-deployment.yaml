@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-worker-ingestion
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-ingestion
+    app.kubernetes.io/part-of: celery-worker
+spec:
+  replicas: {{ .Values.workers.ingestion.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker-ingestion
+      app.kubernetes.io/part-of: celery-worker
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-ingestion
+        app.kubernetes.io/part-of: celery-worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - -P
+            - solo
+            - --concurrency=1
+            - -Q
+            - ingestion,extraction,celery
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "rag-platform.fullname" . }}-config
+            - secretRef:
+                name: {{ include "rag-platform.fullname" . }}-secrets
+          env:
+            - name: WORKER_SERVICE_NAME
+              value: "rag-worker-ingestion"
+            - name: PROMETHEUS_WORKER_METRICS_PORT
+              value: "9090"
+          resources:
+            requests:
+              cpu: {{ .Values.workers.ingestion.resources.requests.cpu | quote }}
+              memory: {{ .Values.workers.ingestion.resources.requests.memory | quote }}
+            limits:
+              cpu: {{ .Values.workers.ingestion.resources.limits.cpu | quote }}
+              memory: {{ .Values.workers.ingestion.resources.limits.memory | quote }}
+              {{- if .Values.workers.ingestion.gpu.enabled }}
+              nvidia.com/gpu: {{ .Values.workers.ingestion.gpu.limits | default "1" | quote }}
+              {{- end }}
+          {{- if .Values.workers.ingestion.gpu.enabled }}
+          securityContext:
+            capabilities:
+              add: ["SYS_ADMIN"]
+          {{- end }}

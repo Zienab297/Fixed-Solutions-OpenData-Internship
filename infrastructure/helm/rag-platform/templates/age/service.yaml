@@ -1,0 +1,19 @@
+{{- if .Values.age.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-age
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: graph-db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "rag-platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: graph-db
+{{- end }}

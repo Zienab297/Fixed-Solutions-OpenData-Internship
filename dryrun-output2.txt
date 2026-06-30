@@ -1,0 +1,3902 @@
+level=WARN msg="--dry-run is deprecated and should be replaced with '--dry-run=client'"
+level=DEBUG msg="Original chart version" version=""
+level=DEBUG msg="Chart path" path=D:\Fixed-Solutions-OpenData-Internship\infrastructure\helm\rag-platform
+level=DEBUG msg="number of dependencies in the chart" chart=rag-platform dependencies=3
+level=DEBUG msg="chart name" chart-name=postgresql
+level=DEBUG msg="unmarshalled JSON schema" schema="{\n  \"$schema\": \"http://json-schema.org/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"architecture\": {\n      \"type\": \"string\",\n      \"title\": \"PostgreSQL architecture\",\n      \"form\": true,\n      \"description\": \"Allowed values: `standalone` or `replication`\"\n    },\n    \"auth\": {\n      \"type\": \"object\",\n      \"title\": \"Authentication configuration\",\n      \"form\": true,\n      \"properties\": {\n        \"enablePostgresUser\": {\n          \"type\": \"boolean\",\n          \"title\": \"Enable \\\"postgres\\\" admin user\",\n          \"description\": \"Assign a password to the \\\"postgres\\\" admin user. Otherwise, remote access will be blocked for this user\",\n          \"form\": true\n        },\n        \"postgresPassword\": {\n          \"type\": \"string\",\n          \"title\": \"Password for the \\\"postgres\\\" admin user\",\n          \"description\": \"Defaults to a random 10-character alphanumeric string if not set\",\n          \"form\": true\n        },\n        \"database\": {\n          \"type\": \"string\",\n          \"title\": \"PostgreSQL custom database\",\n          \"description\": \"Name of the custom database to be created during the 1st initialization of PostgreSQL\",\n          \"form\": true\n        },\n        \"username\": {\n          \"type\": \"string\",\n          \"title\": \"PostgreSQL custom user\",\n          \"description\": \"Name of the custom user to be created during the 1st initialization of PostgreSQL. This user only has permissions on the PostgreSQL custom database\",\n          \"form\": true\n        },\n        \"password\": {\n          \"type\": \"string\",\n          \"title\": \"Password for the custom user to create\",\n          \"description\": \"Defaults to a random 10-character alphanumeric string if not set\",\n          \"form\": true\n        },\n        \"replicationUsername\": {\n          \"type\": \"string\",\n          \"title\": \"PostgreSQL replication user\",\n          \"description\": \"Name of user used to manage replication.\",\n          \"form\": true,\n          \"hidden\": {\n            \"value\": \"standalone\",\n            \"path\": \"architecture\"\n          }\n        },\n        \"replicationPassword\": {\n          \"type\": \"string\",\n          \"title\": \"Password for PostgreSQL replication user\",\n          \"description\": \"Defaults to a random 10-character alphanumeric string if not set\",\n          \"form\": true,\n          \"hidden\": {\n            \"value\": \"standalone\",\n            \"path\": \"architecture\"\n          }\n        }\n      }\n    },\n    \"persistence\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"size\": {\n          \"type\": \"string\",\n          \"title\": \"Persistent Volume Size\",\n          \"form\": true,\n          \"render\": \"slider\",\n          \"sliderMin\": 1,\n          \"sliderMax\": 100,\n          \"sliderUnit\": \"Gi\"\n        }\n      }\n    },\n    \"resources\": {\n      \"type\": \"object\",\n      \"title\": \"Required Resources\",\n      \"description\": \"Configure resource requests\",\n      \"form\": true,\n      \"properties\": {\n        \"requests\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"memory\": {\n              \"type\": \"string\",\n              \"form\": true,\n              \"render\": \"slider\",\n              \"title\": \"Memory Request\",\n              \"sliderMin\": 10,\n              \"sliderMax\": 2048,\n              \"sliderUnit\": \"Mi\"\n            },\n            \"cpu\": {\n              \"type\": \"string\",\n              \"form\": true,\n              \"render\": \"slider\",\n              \"title\": \"CPU Request\",\n              \"sliderMin\": 10,\n              \"sliderMax\": 2000,\n              \"sliderUnit\": \"m\"\n            }\n          }\n        }\n      }\n    },\n    \"replication\": {\n      \"type\": \"object\",\n      \"form\": true,\n      \"title\": \"Replication Details\",\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"title\": \"Enable Replication\",\n          \"form\": true\n        },\n        \"readReplicas\": {\n          \"type\": \"integer\",\n          \"title\": \"read Replicas\",\n          \"form\": true,\n          \"hidden\": {\n            \"value\": \"standalone\",\n            \"path\": \"architecture\"\n          }\n        }\n      }\n    },\n    \"volumePermissions\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"form\": true,\n          \"title\": \"Enable Init Containers\",\n          \"description\": \"Change the owner of the persist volume mountpoint to RunAsUser:fsGroup\"\n        }\n      }\n    },\n    \"metrics\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"title\": \"Configure metrics exporter\",\n          \"form\": true\n        }\n      }\n    }\n  }\n}\n"
+level=DEBUG msg="number of dependencies in the chart" chart=postgresql dependencies=1
+level=DEBUG msg="number of dependencies in the chart" chart=common dependencies=0
+level=DEBUG msg="chart name" chart-name=redis
+level=DEBUG msg="unmarshalled JSON schema" schema="{\n  \"$schema\": \"http://json-schema.org/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"architecture\": {\n      \"type\": \"string\",\n      \"title\": \"Redis architecture\",\n      \"form\": true,\n      \"description\": \"Allowed values: `standalone` or `replication`\",\n      \"enum\": [\"standalone\", \"replication\"]\n    },\n    \"auth\": {\n      \"type\": \"object\",\n      \"title\": \"Authentication configuration\",\n      \"form\": true,\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"form\": true,\n          \"title\": \"Use password authentication\"\n        },\n        \"password\": {\n          \"type\": \"string\",\n          \"title\": \"Redis password\",\n          \"form\": true,\n          \"description\": \"Defaults to a random 10-character alphanumeric string if not set\",\n          \"hidden\": {\n            \"value\": false,\n            \"path\": \"auth/enabled\"\n          }\n        }\n      }\n    },\n    \"master\": {\n      \"type\": \"object\",\n      \"title\": \"Master replicas settings\",\n      \"form\": true,\n      \"properties\": {\n        \"kind\": {\n          \"type\": \"string\",\n          \"title\": \"Workload Kind\",\n          \"form\": true,\n          \"description\": \"Allowed values: `Deployment`, `StatefulSet` or `DaemonSet`\",\n          \"enum\": [\"Deployment\", \"StatefulSet\", \"DaemonSet\"]\n        },\n        \"persistence\": {\n          \"type\": \"object\",\n          \"title\": \"Persistence for master replicas\",\n          \"form\": true,\n          \"properties\": {\n            \"enabled\": {\n              \"type\": \"boolean\",\n              \"form\": true,\n              \"title\": \"Enable persistence\",\n              \"description\": \"Enable persistence using Persistent Volume Claims\"\n            },\n            \"size\": {\n              \"type\": \"string\",\n              \"title\": \"Persistent Volume Size\",\n              \"form\": true,\n              \"render\": \"slider\",\n              \"sliderMin\": 1,\n              \"sliderMax\": 100,\n              \"sliderUnit\": \"Gi\",\n              \"hidden\": {\n                \"value\": false,\n                \"path\": \"master/persistence/enabled\"\n              }\n            }\n          }\n        }\n      }\n    },\n    \"replica\": {\n      \"type\": \"object\",\n      \"title\": \"Redis replicas settings\",\n      \"form\": true,\n      \"hidden\": {\n        \"value\": \"standalone\",\n        \"path\": \"architecture\"\n      },\n      \"properties\": {\n        \"kind\": {\n          \"type\": \"string\",\n          \"title\": \"Workload Kind\",\n          \"form\": true,\n          \"description\": \"Allowed values: `DaemonSet` or `StatefulSet`\",\n          \"enum\": [\"DaemonSet\", \"StatefulSet\"]\n        },\n        \"replicaCount\": {\n          \"type\": \"integer\",\n          \"form\": true,\n          \"title\": \"Number of Redis replicas\"\n        },\n        \"persistence\": {\n          \"type\": \"object\",\n          \"title\": \"Persistence for Redis replicas\",\n          \"form\": true,\n          \"properties\": {\n            \"enabled\": {\n              \"type\": \"boolean\",\n              \"form\": true,\n              \"title\": \"Enable persistence\",\n              \"description\": \"Enable persistence using Persistent Volume Claims\"\n            },\n            \"size\": {\n              \"type\": \"string\",\n              \"title\": \"Persistent Volume Size\",\n              \"form\": true,\n              \"render\": \"slider\",\n              \"sliderMin\": 1,\n              \"sliderMax\": 100,\n              \"sliderUnit\": \"Gi\",\n              \"hidden\": {\n                \"value\": false,\n                \"path\": \"replica/persistence/enabled\"\n              }\n            }\n          }\n        }\n      }\n    },\n    \"volumePermissions\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"form\": true,\n          \"title\": \"Enable Init Containers\",\n          \"description\": \"Use an init container to set required folder permissions on the data volume before mounting it in the final destination\"\n        }\n      }\n    },\n    \"metrics\": {\n      \"type\": \"object\",\n      \"form\": true,\n      \"title\": \"Prometheus metrics details\",\n      \"properties\": {\n        \"enabled\": {\n          \"type\": \"boolean\",\n          \"title\": \"Create Prometheus metrics exporter\",\n          \"description\": \"Create a side-car container to expose Prometheus metrics\",\n          \"form\": true\n        },\n        \"serviceMonitor\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"enabled\": {\n              \"type\": \"boolean\",\n              \"title\": \"Create Prometheus Operator ServiceMonitor\",\n              \"description\": \"Create a ServiceMonitor to track metrics using Prometheus Operator\",\n              \"form\": true,\n              \"hidden\": {\n                \"value\": false,\n                \"path\": \"metrics/enabled\"\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n"
+level=DEBUG msg="number of dependencies in the chart" chart=redis dependencies=1
+level=DEBUG msg="number of dependencies in the chart" chart=common dependencies=0
+level=DEBUG msg="number of dependencies in the chart" chart=qdrant dependencies=0
+NAME: rag-mvp
+LAST DEPLOYED: Tue Jun 30 00:10:35 2026
+NAMESPACE: default
+STATUS: pending-install
+REVISION: 1
+DESCRIPTION: Dry run complete
+USER-SUPPLIED VALUES:
+{}
+
+COMPUTED VALUES:
+age:
+  auth:
+    database: agedb
+    password: agepassword
+    username: ageuser
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
+    repository: apache/age
+    tag: release_PG16_1.5.0
+  persistence:
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+api:
+  adminEmail: admin@example.com
+  adminPassword: changeme123
+  hpa:
+    enabled: true
+    maxReplicas: 10
+    minReplicas: 2
+    targetCPUUtilizationPercentage: 80
+  image:
+    pullPolicy: IfNotPresent
+    repository: rag-api
+    tag: latest
+  replicaCount: 2
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  secretKey: change-me-in-production-use-a-long-random-string
+  service:
+    port: 8000
+    type: ClusterIP
+frontend:
+  hpa:
+    enabled: true
+    maxReplicas: 5
+    minReplicas: 2
+    targetCPUUtilizationPercentage: 80
+  image:
+    pullPolicy: IfNotPresent
+    repository: rag-frontend
+    tag: latest
+  replicaCount: 2
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    port: 80
+    type: ClusterIP
+global:
+  domain: rag.local
+  storageClass: ""
+ingress:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  enabled: true
+  tls:
+    enabled: false
+    secretName: rag-tls-secret
+keycloak:
+  auth:
+    adminPassword: keycloakpassword
+    adminUser: admin
+    clientSecret: keycloakclientsecret
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
+    repository: quay.io/keycloak/keycloak
+    tag: 24.0.1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  service:
+    port: 8080
+    type: ClusterIP
+ner:
+  image:
+    pullPolicy: IfNotPresent
+    repository: rag-ner
+    tag: latest
+  persistence:
+    enabled: true
+    size: 5Gi
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  service:
+    port: 8001
+    type: ClusterIP
+observability:
+  alerting:
+    enabled: true
+    evalLatencyP95ThresholdSeconds: 30
+    queryLatencyP95ThresholdSeconds: 5
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+ollama:
+  judge:
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    image:
+      pullPolicy: IfNotPresent
+      repository: ollama/ollama
+      tag: latest
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 2Gi
+    scoreThreshold: 0.7
+  main:
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    image:
+      pullPolicy: IfNotPresent
+      repository: ollama/ollama
+      tag: latest
+    persistence:
+      size: 20Gi
+    resources:
+      limits:
+        cpu: "4"
+        memory: 8Gi
+      requests:
+        cpu: "2"
+        memory: 4Gi
+postgresql:
+  architecture: standalone
+  audit:
+    clientMinMessages: error
+    logConnections: false
+    logDisconnections: false
+    logHostname: false
+    logLinePrefix: ""
+    logTimezone: ""
+    pgAuditLog: ""
+    pgAuditLogCatalog: "off"
+  auth:
+    database: ragdb
+    enablePostgresUser: true
+    existingSecret: ""
+    password: ragpassword
+    postgresPassword: ""
+    replicationPassword: ""
+    replicationUsername: repl_user
+    secretKeys:
+      adminPasswordKey: postgres-password
+      replicationPasswordKey: replication-password
+      userPasswordKey: password
+    usePasswordFiles: false
+    username: raguser
+  backup:
+    cronjob:
+      annotations: {}
+      command:
+      - /bin/sh
+      - -c
+      - pg_dumpall --clean --if-exists --load-via-partition-root --quote-all-identifiers
+        --no-password --file=${PGDUMP_DIR}/pg_dumpall-$(date '+%Y-%m-%d-%H-%M').pgdump
+      concurrencyPolicy: Allow
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        enabled: true
+        privileged: false
+        readOnlyRootFilesystem: true
+        runAsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seLinuxOptions: {}
+        seccompProfile:
+          type: RuntimeDefault
+      extraVolumeMounts: []
+      extraVolumes: []
+      failedJobsHistoryLimit: 1
+      labels: {}
+      networkPolicy:
+        enabled: true
+      nodeSelector: {}
+      podSecurityContext:
+        enabled: true
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      resources: {}
+      resourcesPreset: nano
+      restartPolicy: OnFailure
+      schedule: '@daily'
+      startingDeadlineSeconds: ""
+      storage:
+        accessModes:
+        - ReadWriteOnce
+        annotations: {}
+        enabled: true
+        existingClaim: ""
+        mountPath: /backup/pgdump
+        resourcePolicy: ""
+        size: 8Gi
+        storageClass: ""
+        subPath: ""
+        volumeClaimTemplates:
+          selector: {}
+      successfulJobsHistoryLimit: 3
+      timeZone: ""
+      tolerations: []
+      ttlSecondsAfterFinished: ""
+    enabled: false
+  clusterDomain: cluster.local
+  common:
+    exampleValue: common-chart
+    global:
+      compatibility:
+        openshift:
+          adaptSecurityContext: auto
+      domain: rag.local
+      imagePullSecrets: []
+      imageRegistry: ""
+      postgresql:
+        auth:
+          database: ""
+          existingSecret: ""
+          password: ""
+          postgresPassword: ""
+          secretKeys:
+            adminPasswordKey: ""
+            replicationPasswordKey: ""
+            userPasswordKey: ""
+          username: ""
+        service:
+          ports:
+            postgresql: ""
+      storageClass: ""
+  commonAnnotations: {}
+  commonLabels: {}
+  containerPorts:
+    postgresql: 5432
+  diagnosticMode:
+    args:
+    - infinity
+    command:
+    - sleep
+    enabled: false
+  enabled: true
+  extraDeploy: []
+  fullnameOverride: ""
+  global:
+    compatibility:
+      openshift:
+        adaptSecurityContext: auto
+    domain: rag.local
+    imagePullSecrets: []
+    imageRegistry: ""
+    postgresql:
+      auth:
+        database: ""
+        existingSecret: ""
+        password: ""
+        postgresPassword: ""
+        secretKeys:
+          adminPasswordKey: ""
+          replicationPasswordKey: ""
+          userPasswordKey: ""
+        username: ""
+      service:
+        ports:
+          postgresql: ""
+    storageClass: ""
+  image:
+    debug: false
+    digest: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: 16.3.0-debian-12-r13
+  kubeVersion: ""
+  ldap:
+    basedn: ""
+    binddn: ""
+    bindpw: ""
+    enabled: false
+    port: ""
+    prefix: ""
+    scheme: ""
+    searchAttribute: ""
+    searchFilter: ""
+    server: ""
+    suffix: ""
+    tls:
+      enabled: false
+    uri: ""
+  metrics:
+    collectors: {}
+    containerPorts:
+      metrics: 9187
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: {}
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customMetrics: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    enabled: false
+    extraEnvVars: []
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/postgres-exporter
+      tag: 0.15.0-debian-12-r33
+    livenessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    prometheusRule:
+      enabled: false
+      labels: {}
+      namespace: ""
+      rules: []
+    readinessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    resources: {}
+    resourcesPreset: nano
+    service:
+      annotations:
+        prometheus.io/port: '{{ .Values.metrics.service.ports.metrics }}'
+        prometheus.io/scrape: "true"
+      clusterIP: ""
+      ports:
+        metrics: 9187
+      sessionAffinity: None
+    serviceMonitor:
+      enabled: false
+      honorLabels: false
+      interval: ""
+      jobLabel: ""
+      labels: {}
+      metricRelabelings: []
+      namespace: ""
+      relabelings: []
+      scrapeTimeout: ""
+      selector: {}
+    startupProbe:
+      enabled: false
+      failureThreshold: 15
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+  nameOverride: ""
+  persistence:
+    enabled: true
+    size: 10Gi
+  postgresqlDataDir: /bitnami/postgresql/data
+  postgresqlSharedPreloadLibraries: pgaudit
+  primary:
+    affinity: {}
+    annotations: {}
+    args: []
+    automountServiceAccountToken: false
+    command: []
+    configuration: ""
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: {}
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    existingConfigmap: ""
+    existingExtendedConfigmap: ""
+    extendedConfiguration: ""
+    extraEnvVars: []
+    extraEnvVarsCM: ""
+    extraEnvVarsSecret: ""
+    extraPodSpec: {}
+    extraVolumeMounts: []
+    extraVolumes: []
+    hostAliases: []
+    hostIPC: false
+    hostNetwork: false
+    initContainers: []
+    initdb:
+      args: ""
+      password: ""
+      postgresqlWalDir: ""
+      scripts: {}
+      scriptsConfigMap: ""
+      scriptsSecret: ""
+      user: ""
+    labels: {}
+    lifecycleHooks: {}
+    livenessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    name: primary
+    networkPolicy:
+      allowExternal: true
+      allowExternalEgress: true
+      enabled: true
+      extraEgress: []
+      extraIngress: []
+      ingressNSMatchLabels: {}
+      ingressNSPodMatchLabels: {}
+    nodeAffinityPreset:
+      key: ""
+      type: ""
+      values: []
+    nodeSelector: {}
+    pdb:
+      create: true
+      maxUnavailable: ""
+      minAvailable: ""
+    persistence:
+      accessModes:
+      - ReadWriteOnce
+      annotations: {}
+      dataSource: {}
+      enabled: true
+      existingClaim: ""
+      labels: {}
+      mountPath: /bitnami/postgresql
+      selector: {}
+      size: 8Gi
+      storageClass: ""
+      subPath: ""
+      volumeName: data
+    persistentVolumeClaimRetentionPolicy:
+      enabled: false
+      whenDeleted: Retain
+      whenScaled: Retain
+    pgHbaConfiguration: ""
+    podAffinityPreset: ""
+    podAnnotations: {}
+    podAntiAffinityPreset: soft
+    podLabels: {}
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+      fsGroupChangePolicy: Always
+      supplementalGroups: []
+      sysctls: []
+    priorityClassName: ""
+    readinessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 512Mi
+    resourcesPreset: nano
+    schedulerName: ""
+    service:
+      annotations: {}
+      clusterIP: ""
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      headless:
+        annotations: {}
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      nodePorts:
+        postgresql: ""
+      ports:
+        postgresql: 5432
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      type: ClusterIP
+    sidecars: []
+    standby:
+      enabled: false
+      primaryHost: ""
+      primaryPort: ""
+    startupProbe:
+      enabled: false
+      failureThreshold: 15
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+    terminationGracePeriodSeconds: ""
+    tolerations: []
+    topologySpreadConstraints: []
+    updateStrategy:
+      rollingUpdate: {}
+      type: RollingUpdate
+  psp:
+    create: false
+  rbac:
+    create: false
+    rules: []
+  readReplicas:
+    affinity: {}
+    annotations: {}
+    args: []
+    automountServiceAccountToken: false
+    command: []
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: {}
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    extendedConfiguration: ""
+    extraEnvVars: []
+    extraEnvVarsCM: ""
+    extraEnvVarsSecret: ""
+    extraPodSpec: {}
+    extraVolumeMounts: []
+    extraVolumes: []
+    hostAliases: []
+    hostIPC: false
+    hostNetwork: false
+    initContainers: []
+    labels: {}
+    lifecycleHooks: {}
+    livenessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    name: read
+    networkPolicy:
+      allowExternal: true
+      allowExternalEgress: true
+      enabled: true
+      extraEgress: []
+      extraIngress: []
+      ingressNSMatchLabels: {}
+      ingressNSPodMatchLabels: {}
+    nodeAffinityPreset:
+      key: ""
+      type: ""
+      values: []
+    nodeSelector: {}
+    pdb:
+      create: true
+      maxUnavailable: ""
+      minAvailable: ""
+    persistence:
+      accessModes:
+      - ReadWriteOnce
+      annotations: {}
+      dataSource: {}
+      enabled: true
+      existingClaim: ""
+      labels: {}
+      mountPath: /bitnami/postgresql
+      selector: {}
+      size: 8Gi
+      storageClass: ""
+      subPath: ""
+    persistentVolumeClaimRetentionPolicy:
+      enabled: false
+      whenDeleted: Retain
+      whenScaled: Retain
+    podAffinityPreset: ""
+    podAnnotations: {}
+    podAntiAffinityPreset: soft
+    podLabels: {}
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+      fsGroupChangePolicy: Always
+      supplementalGroups: []
+      sysctls: []
+    priorityClassName: ""
+    readinessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    replicaCount: 1
+    resources: {}
+    resourcesPreset: nano
+    schedulerName: ""
+    service:
+      annotations: {}
+      clusterIP: ""
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      headless:
+        annotations: {}
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      nodePorts:
+        postgresql: ""
+      ports:
+        postgresql: 5432
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      type: ClusterIP
+    sidecars: []
+    startupProbe:
+      enabled: false
+      failureThreshold: 15
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+    terminationGracePeriodSeconds: ""
+    tolerations: []
+    topologySpreadConstraints: []
+    updateStrategy:
+      rollingUpdate: {}
+      type: RollingUpdate
+  replication:
+    applicationName: my_application
+    numSynchronousReplicas: 0
+    synchronousCommit: "off"
+  serviceAccount:
+    annotations: {}
+    automountServiceAccountToken: false
+    create: true
+    name: ""
+  serviceBindings:
+    enabled: false
+  shmVolume:
+    enabled: true
+    sizeLimit: ""
+  tls:
+    autoGenerated: false
+    certCAFilename: ""
+    certFilename: ""
+    certKeyFilename: ""
+    certificatesSecret: ""
+    crlFilename: ""
+    enabled: false
+    preferServerCiphers: true
+  volumePermissions:
+    containerSecurityContext:
+      runAsGroup: 0
+      runAsNonRoot: false
+      runAsUser: 0
+      seLinuxOptions: {}
+      seccompProfile:
+        type: RuntimeDefault
+    enabled: false
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/os-shell
+      tag: 12-debian-12-r22
+    resources: {}
+    resourcesPreset: nano
+qdrant:
+  additionalAnnotations: {}
+  additionalLabels: {}
+  additionalVolumeMounts: []
+  additionalVolumes: []
+  affinity: {}
+  args:
+  - ./config/initialize.sh
+  chartTests:
+    dbInteraction:
+      image: registry.suse.com/bci/bci-base:latest
+      resources:
+        limits:
+          cpu: 100m
+          memory: 200Mi
+        requests:
+          cpu: 100m
+          memory: 200Mi
+  config:
+    cluster:
+      consensus:
+        tick_period_ms: 100
+      enabled: true
+      p2p:
+        enable_tls: false
+        port: 6335
+    service:
+      enable_tls: false
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+  enabled: true
+  env: []
+  fullnameOverride: ""
+  global:
+    domain: rag.local
+    storageClass: ""
+  image:
+    pullPolicy: IfNotPresent
+    repository: docker.io/qdrant/qdrant
+    tag: ""
+    useUnprivilegedImage: false
+  imagePullSecrets: []
+  ingress:
+    additionalLabels: {}
+    annotations: {}
+    enabled: false
+    hosts:
+    - host: example-domain.com
+      paths:
+      - path: /
+        pathType: Prefix
+        servicePort: 6333
+    ingressClassName: ""
+    tls: []
+  lifecycle:
+    preStop:
+      exec:
+        command:
+        - sleep
+        - "3"
+  livenessProbe:
+    enabled: false
+    failureThreshold: 6
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+  metrics:
+    serviceMonitor:
+      additionalLabels: {}
+      authorization: {}
+      enabled: false
+      metricRelabelings: []
+      relabelings: []
+      scrapeInterval: 30s
+      scrapeTimeout: 10s
+      targetPath: /metrics
+      targetPort: http
+  nameOverride: ""
+  nodeSelector: {}
+  persistence:
+    accessModes:
+    - ReadWriteOnce
+    additionalLabels: {}
+    annotations: {}
+    size: 10Gi
+  podAnnotations: {}
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+    unhealthyPodEvictionPolicy: ""
+  podLabels: {}
+  podManagementPolicy: Parallel
+  podSecurityContext:
+    fsGroup: 3000
+    fsGroupChangePolicy: Always
+  priorityClassName: ""
+  readinessProbe:
+    enabled: true
+    failureThreshold: 6
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 512Mi
+  service:
+    additionalLabels: {}
+    annotations: {}
+    loadBalancerIP: ""
+    ports:
+    - checksEnabled: true
+      name: http
+      port: 6333
+      protocol: TCP
+      targetPort: 6333
+    - checksEnabled: false
+      name: grpc
+      port: 6334
+      protocol: TCP
+      targetPort: 6334
+    - checksEnabled: false
+      name: p2p
+      port: 6335
+      protocol: TCP
+      targetPort: 6335
+    type: ClusterIP
+  serviceAccount:
+    annotations: {}
+  shareProcessNamespace: false
+  sidecarContainers: []
+  snapshotPersistence:
+    accessModes:
+    - ReadWriteOnce
+    additionalLabels: {}
+    annotations: {}
+    enabled: false
+    size: 10Gi
+  snapshotRestoration:
+    enabled: false
+    mountPath: /qdrant/snapshot-restoration
+    pvcName: snapshots-pvc
+    snapshots: null
+  startupProbe:
+    enabled: false
+    failureThreshold: 30
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    successThreshold: 1
+    timeoutSeconds: 1
+  tolerations: []
+  topologySpreadConstraints: []
+  updateVolumeFsOwnership: true
+redis:
+  architecture: standalone
+  auth:
+    enabled: true
+    existingSecret: ""
+    existingSecretPasswordKey: ""
+    password: redispassword
+    sentinel: true
+    usePasswordFileFromSecret: true
+    usePasswordFiles: false
+  clusterDomain: cluster.local
+  common:
+    exampleValue: common-chart
+    global:
+      compatibility:
+        openshift:
+          adaptSecurityContext: auto
+      domain: rag.local
+      imagePullSecrets: []
+      imageRegistry: ""
+      redis:
+        password: ""
+      storageClass: ""
+  commonAnnotations: {}
+  commonConfiguration: |-
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  commonLabels: {}
+  diagnosticMode:
+    args:
+    - infinity
+    command:
+    - sleep
+    enabled: false
+  enabled: true
+  existingConfigmap: ""
+  extraDeploy: []
+  fullnameOverride: ""
+  global:
+    compatibility:
+      openshift:
+        adaptSecurityContext: auto
+    domain: rag.local
+    imagePullSecrets: []
+    imageRegistry: ""
+    redis:
+      password: ""
+    storageClass: ""
+  image:
+    debug: false
+    digest: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+    registry: docker.io
+    repository: bitnami/redis
+    tag: 7.2.4-debian-12-r9
+  kubeVersion: ""
+  kubectl:
+    command:
+    - /opt/bitnami/scripts/kubectl-scripts/update-master-label.sh
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/kubectl
+      tag: 1.29.2-debian-12-r3
+    resources:
+      limits: {}
+      requests: {}
+  master:
+    affinity: {}
+    args: []
+    automountServiceAccountToken: false
+    command: []
+    configuration: ""
+    containerPorts:
+      redis: 6379
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: null
+      seccompProfile:
+        type: RuntimeDefault
+    count: 1
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    disableCommands:
+    - FLUSHDB
+    - FLUSHALL
+    dnsConfig: {}
+    dnsPolicy: ""
+    enableServiceLinks: true
+    extraEnvVars: []
+    extraEnvVarsCM: ""
+    extraEnvVarsSecret: ""
+    extraFlags: []
+    extraVolumeMounts: []
+    extraVolumes: []
+    hostAliases: []
+    initContainers: []
+    kind: StatefulSet
+    lifecycleHooks: {}
+    livenessProbe:
+      enabled: true
+      failureThreshold: 5
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 5
+    minReadySeconds: 0
+    nodeAffinityPreset:
+      key: ""
+      type: ""
+      values: []
+    nodeSelector: {}
+    persistence:
+      accessModes:
+      - ReadWriteOnce
+      annotations: {}
+      dataSource: {}
+      enabled: true
+      existingClaim: ""
+      labels: {}
+      medium: ""
+      path: /data
+      selector: {}
+      size: 5Gi
+      sizeLimit: ""
+      storageClass: ""
+      subPath: ""
+      subPathExpr: ""
+    persistentVolumeClaimRetentionPolicy:
+      enabled: false
+      whenDeleted: Retain
+      whenScaled: Retain
+    podAffinityPreset: ""
+    podAnnotations: {}
+    podAntiAffinityPreset: soft
+    podLabels: {}
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+      fsGroupChangePolicy: Always
+      supplementalGroups: []
+      sysctls: []
+    preExecCmds: []
+    priorityClassName: ""
+    readinessProbe:
+      enabled: true
+      failureThreshold: 5
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    resourcesPreset: nano
+    schedulerName: ""
+    service:
+      annotations: {}
+      clusterIP: ""
+      externalIPs: []
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      internalTrafficPolicy: Cluster
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      nodePorts:
+        redis: ""
+      ports:
+        redis: 6379
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      type: ClusterIP
+    serviceAccount:
+      annotations: {}
+      automountServiceAccountToken: false
+      create: true
+      name: ""
+    shareProcessNamespace: false
+    sidecars: []
+    startupProbe:
+      enabled: false
+      failureThreshold: 5
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 5
+    terminationGracePeriodSeconds: 30
+    tolerations: []
+    topologySpreadConstraints: []
+    updateStrategy:
+      type: RollingUpdate
+  metrics:
+    command: []
+    containerPorts:
+      http: 9121
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: null
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    enabled: false
+    extraArgs: {}
+    extraEnvVars: []
+    extraVolumeMounts: []
+    extraVolumes: []
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/redis-exporter
+      tag: 1.58.0-debian-12-r4
+    livenessProbe:
+      enabled: true
+      failureThreshold: 5
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    podAnnotations:
+      prometheus.io/port: "9121"
+      prometheus.io/scrape: "true"
+    podLabels: {}
+    podMonitor:
+      additionalEndpoints: []
+      additionalLabels: {}
+      enabled: false
+      honorLabels: false
+      interval: 30s
+      metricRelabelings: []
+      namespace: ""
+      podTargetLabels: []
+      port: metrics
+      relabelings: []
+      relabellings: []
+      sampleLimit: false
+      scrapeTimeout: ""
+      targetLimit: false
+    prometheusRule:
+      additionalLabels: {}
+      enabled: false
+      namespace: ""
+      rules: []
+    readinessProbe:
+      enabled: true
+      failureThreshold: 3
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+    redisTargetHost: localhost
+    resources: {}
+    resourcesPreset: nano
+    service:
+      annotations: {}
+      clusterIP: ""
+      enabled: true
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      ports:
+        http: 9121
+      type: ClusterIP
+    serviceMonitor:
+      additionalEndpoints: []
+      additionalLabels: {}
+      enabled: false
+      honorLabels: false
+      interval: 30s
+      metricRelabelings: []
+      namespace: ""
+      podTargetLabels: []
+      port: http-metrics
+      relabelings: []
+      relabellings: []
+      sampleLimit: false
+      scrapeTimeout: ""
+      targetLimit: false
+    startupProbe:
+      enabled: false
+      failureThreshold: 5
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+  nameOverride: ""
+  nameResolutionThreshold: 5
+  nameResolutionTimeout: 5
+  namespaceOverride: ""
+  networkPolicy:
+    allowExternal: true
+    allowExternalEgress: true
+    enabled: true
+    extraEgress: []
+    extraIngress: []
+    ingressNSMatchLabels: {}
+    ingressNSPodMatchLabels: {}
+    metrics:
+      allowExternal: true
+      ingressNSMatchLabels: {}
+      ingressNSPodMatchLabels: {}
+  pdb:
+    create: false
+    maxUnavailable: ""
+    minAvailable: 1
+  podSecurityPolicy:
+    create: false
+    enabled: false
+  rbac:
+    create: false
+    rules: []
+  replica:
+    affinity: {}
+    args: []
+    automountServiceAccountToken: false
+    autoscaling:
+      enabled: false
+      maxReplicas: 11
+      minReplicas: 1
+      targetCPU: ""
+      targetMemory: ""
+    command: []
+    configuration: ""
+    containerPorts:
+      redis: 6379
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: null
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    disableCommands:
+    - FLUSHDB
+    - FLUSHALL
+    dnsConfig: {}
+    dnsPolicy: ""
+    enableServiceLinks: true
+    externalMaster:
+      enabled: false
+      host: ""
+      port: 6379
+    extraEnvVars: []
+    extraEnvVarsCM: ""
+    extraEnvVarsSecret: ""
+    extraFlags: []
+    extraVolumeMounts: []
+    extraVolumes: []
+    hostAliases: []
+    initContainers: []
+    kind: StatefulSet
+    lifecycleHooks: {}
+    livenessProbe:
+      enabled: true
+      failureThreshold: 5
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 5
+    minReadySeconds: 0
+    nodeAffinityPreset:
+      key: ""
+      type: ""
+      values: []
+    nodeSelector: {}
+    persistence:
+      accessModes:
+      - ReadWriteOnce
+      annotations: {}
+      dataSource: {}
+      enabled: true
+      existingClaim: ""
+      labels: {}
+      medium: ""
+      path: /data
+      selector: {}
+      size: 8Gi
+      sizeLimit: ""
+      storageClass: ""
+      subPath: ""
+      subPathExpr: ""
+    persistentVolumeClaimRetentionPolicy:
+      enabled: false
+      whenDeleted: Retain
+      whenScaled: Retain
+    podAffinityPreset: ""
+    podAnnotations: {}
+    podAntiAffinityPreset: soft
+    podLabels: {}
+    podManagementPolicy: ""
+    podSecurityContext:
+      enabled: true
+      fsGroup: 1001
+      fsGroupChangePolicy: Always
+      supplementalGroups: []
+      sysctls: []
+    preExecCmds: []
+    priorityClassName: ""
+    readinessProbe:
+      enabled: true
+      failureThreshold: 5
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 1
+    replicaCount: 3
+    resources: {}
+    resourcesPreset: nano
+    schedulerName: ""
+    service:
+      annotations: {}
+      clusterIP: ""
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      internalTrafficPolicy: Cluster
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      nodePorts:
+        redis: ""
+      ports:
+        redis: 6379
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      type: ClusterIP
+    serviceAccount:
+      annotations: {}
+      automountServiceAccountToken: false
+      create: true
+      name: ""
+    shareProcessNamespace: false
+    sidecars: []
+    startupProbe:
+      enabled: true
+      failureThreshold: 22
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    terminationGracePeriodSeconds: 30
+    tolerations: []
+    topologySpreadConstraints: []
+    updateStrategy:
+      type: RollingUpdate
+  secretAnnotations: {}
+  sentinel:
+    annotations: {}
+    args: []
+    automateClusterRecovery: false
+    command: []
+    configuration: ""
+    containerPorts:
+      sentinel: 26379
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsGroup: 1001
+      runAsNonRoot: true
+      runAsUser: 1001
+      seLinuxOptions: null
+      seccompProfile:
+        type: RuntimeDefault
+    customLivenessProbe: {}
+    customReadinessProbe: {}
+    customStartupProbe: {}
+    downAfterMilliseconds: 60000
+    enableServiceLinks: true
+    enabled: false
+    externalMaster:
+      enabled: false
+      host: ""
+      port: 6379
+    extraEnvVars: []
+    extraEnvVarsCM: ""
+    extraEnvVarsSecret: ""
+    extraVolumeMounts: []
+    extraVolumes: []
+    failoverTimeout: 180000
+    getMasterTimeout: 90
+    image:
+      debug: false
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/redis-sentinel
+      tag: 7.2.4-debian-12-r7
+    lifecycleHooks: {}
+    livenessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    masterSet: mymaster
+    parallelSyncs: 1
+    persistence:
+      accessModes:
+      - ReadWriteOnce
+      annotations: {}
+      dataSource: {}
+      enabled: false
+      labels: {}
+      medium: ""
+      selector: {}
+      size: 100Mi
+      sizeLimit: ""
+      storageClass: ""
+    persistentVolumeClaimRetentionPolicy:
+      enabled: false
+      whenDeleted: Retain
+      whenScaled: Retain
+    preExecCmds: []
+    quorum: 2
+    readinessProbe:
+      enabled: true
+      failureThreshold: 6
+      initialDelaySeconds: 20
+      periodSeconds: 5
+      successThreshold: 1
+      timeoutSeconds: 1
+    redisShutdownWaitFailover: true
+    resources: {}
+    resourcesPreset: nano
+    service:
+      annotations: {}
+      clusterIP: ""
+      createMaster: false
+      externalTrafficPolicy: Cluster
+      extraPorts: []
+      headless:
+        annotations: {}
+      loadBalancerClass: ""
+      loadBalancerIP: ""
+      loadBalancerSourceRanges: []
+      nodePorts:
+        redis: ""
+        sentinel: ""
+      ports:
+        redis: 6379
+        sentinel: 26379
+      sessionAffinity: None
+      sessionAffinityConfig: {}
+      type: ClusterIP
+    startupProbe:
+      enabled: true
+      failureThreshold: 22
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 5
+    terminationGracePeriodSeconds: 30
+  serviceAccount:
+    annotations: {}
+    automountServiceAccountToken: false
+    create: true
+    name: ""
+  serviceBindings:
+    enabled: false
+  sysctl:
+    command: []
+    enabled: false
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/os-shell
+      tag: 12-debian-12-r16
+    mountHostSys: false
+    resources: {}
+    resourcesPreset: nano
+  tls:
+    authClients: true
+    autoGenerated: false
+    certCAFilename: ""
+    certFilename: ""
+    certKeyFilename: ""
+    certificatesSecret: ""
+    dhParamsFilename: ""
+    enabled: false
+    existingSecret: ""
+  useExternalDNS:
+    additionalAnnotations: {}
+    annotationKey: external-dns.alpha.kubernetes.io/
+    enabled: false
+    suffix: ""
+  useHostnames: true
+  volumePermissions:
+    containerSecurityContext:
+      runAsUser: 0
+      seLinuxOptions: null
+    enabled: false
+    image:
+      digest: ""
+      pullPolicy: IfNotPresent
+      pullSecrets: []
+      registry: docker.io
+      repository: bitnami/os-shell
+      tag: 12-debian-12-r16
+    resources: {}
+    resourcesPreset: nano
+workers:
+  evaluation:
+    hpa:
+      enabled: false
+      maxReplicas: 3
+      minReplicas: 1
+      targetCPUUtilizationPercentage: 85
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+  ingestion:
+    gpu:
+      enabled: false
+      limits:
+        nvidia.com/gpu: "1"
+    hpa:
+      enabled: false
+      maxReplicas: 5
+      minReplicas: 1
+      targetCPUUtilizationPercentage: 85
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 2Gi
+
+HOOKS:
+---
+# Source: rag-platform/charts/qdrant/templates/tests/test-db-interaction.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "rag-mvp-qdrant-test-db-interaction"
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+  annotations:
+    "helm.sh/hook": test
+data:
+  entrypoint.sh: |
+    #!/bin/bash
+    set -xe
+    # Kind's networking is very flaky
+    echo 'connect-timeout = 5' > $HOME/.curlrc
+    echo 'retry = 60' >> $HOME/.curlrc
+    echo 'retry-delay = 5' >> $HOME/.curlrc
+    echo 'retry-all-errors' >> $HOME/.curlrc
+    # Don't clutter the logs with progress bars
+    echo 'no-progress-meter' >> $HOME/.curlrc
+    # Ensure errors cause the script to fail, but show the response body
+    echo 'fail-with-body' >> $HOME/.curlrc
+
+    if [ -d /mnt/secrets/certs ]; then
+      cp /mnt/secrets/certs/ca.pem /usr/share/pki/trust/anchors/private-ca.pem
+      update-ca-certificates
+    fi
+
+    QDRANT_COLLECTION="test_collection"
+    echo "Connecting to rag-mvp-qdrant.default:6333"
+    QDRANT_URL="http://rag-mvp-qdrant.default:6333"
+    API_KEY_HEADER=""
+
+    # Delete collection if exists
+    curl -X DELETE -H "${API_KEY_HEADER}" $QDRANT_URL/collections/${QDRANT_COLLECTION}
+
+    # Create collection
+    curl -X PUT \
+    -H 'Content-Type: application-json' \
+    -d '{"vectors":{"size":4,"distance":"Dot"}}' \
+    -H  "${API_KEY_HEADER}" \
+    $QDRANT_URL/collections/${QDRANT_COLLECTION}
+
+    # Insert points
+    curl -X PUT \
+    -H 'Content-Type: application-json' \
+    -d '{"points":[
+      {"id":1,"vector":[0.05, 0.61, 0.76, 0.74],"payload":{"city":"Berlin"}},
+      {"id":2,"vector":[0.19, 0.81, 0.75, 0.11],"payload":{"city":"London"}},
+      {"id":3,"vector":[0.36, 0.55, 0.47, 0.94],"payload":{"city":"Moscow"}},
+      {"id":4,"vector":[0.18, 0.01, 0.85, 0.80],"payload":{"city":"New York"}},
+      {"id":5,"vector":[0.24, 0.18, 0.22, 0.44],"payload":{"city":"Beijing"}},
+      {"id":6,"vector":[0.35, 0.08, 0.11, 0.44],"payload":{"city":"Mumbai"}}
+    ]}' \
+    -H  "${API_KEY_HEADER}" \
+    $QDRANT_URL/collections/${QDRANT_COLLECTION}/points
+
+    # Run query
+    curl -X POST \
+    -H 'Content-Type: application-json' \
+    -d '{"vector":[0.2, 0.1, 0.9, 0.7],"limit":3}' \
+    -H  "${API_KEY_HEADER}" \
+    $QDRANT_URL/collections/${QDRANT_COLLECTION}/points/search
+---
+# Source: rag-platform/charts/qdrant/templates/tests/test-db-interaction.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "rag-mvp-qdrant-test-db-interaction"
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: test-script
+      image: "registry.suse.com/bci/bci-base:latest"
+      args: ['bash', '/app/entrypoint.sh']
+      volumeMounts:
+        - mountPath: /app
+          name: test-script
+      resources:
+        limits:
+          cpu: 100m
+          memory: 200Mi
+        requests:
+          cpu: 100m
+          memory: 200Mi
+  volumes:
+    - name: test-script
+      configMap:
+        name: "rag-mvp-qdrant-test-db-interaction"
+  restartPolicy: Never
+  serviceAccountName: rag-mvp-qdrant
+MANIFEST:
+---
+# Source: rag-platform/charts/postgresql/templates/primary/networkpolicy.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+    app.kubernetes.io/component: primary
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - {}
+  ingress:
+    - ports:
+        - port: 5432
+---
+# Source: rag-platform/charts/redis/templates/networkpolicy.yaml
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: rag-mvp-redis
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - {}
+  ingress:
+    # Allow inbound connections
+    - ports:
+        - port: 6379
+---
+# Source: rag-platform/charts/postgresql/templates/primary/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+    app.kubernetes.io/component: primary
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+---
+# Source: rag-platform/charts/postgresql/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+automountServiceAccountToken: false
+---
+# Source: rag-platform/charts/qdrant/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rag-mvp-qdrant
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: rag-platform/charts/redis/templates/master/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: false
+metadata:
+  name: rag-mvp-redis-master
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+---
+# Source: rag-platform/charts/postgresql/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+type: Opaque
+data:
+  postgres-password: "aUNqR09aQ3MzVA=="
+  password: "cmFncGFzc3dvcmQ="
+  # We don't auto-generate LDAP password when it's not provided as we do for other passwords
+---
+# Source: rag-platform/charts/redis/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-mvp-redis
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+type: Opaque
+data:
+  redis-password: "cmVkaXNwYXNzd29yZA=="
+---
+# Source: rag-platform/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-mvp-rag-platform-secrets
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  DATABASE_URL: "cG9zdGdyZXNxbCthc3luY3BnOi8vcmFndXNlcjpyYWdwYXNzd29yZEByYWctbXZwLXBvc3RncmVzcWw6NTQzMi9yYWdkYg=="
+  CELERY_BROKER_URL: "cmVkaXM6Ly86cmVkaXNwYXNzd29yZEByYWctbXZwLXJlZGlzLW1hc3Rlcjo2Mzc5LzA="
+  CELERY_RESULT_BACKEND: "cmVkaXM6Ly86cmVkaXNwYXNzd29yZEByYWctbXZwLXJlZGlzLW1hc3Rlcjo2Mzc5LzE="
+  
+  AGE_PASSWORD: "YWdlcGFzc3dvcmQ="
+  
+  SECRET_KEY: "Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24tdXNlLWEtbG9uZy1yYW5kb20tc3RyaW5n"
+  ADMIN_PASSWORD: "Y2hhbmdlbWUxMjM="
+  ADMIN_EMAIL: "YWRtaW5AZXhhbXBsZS5jb20="
+
+  KEYCLOAK_ADMIN_PASSWORD: "a2V5Y2xvYWtwYXNzd29yZA=="
+  KEYCLOAK_CLIENT_SECRET: "a2V5Y2xvYWtjbGllbnRzZWNyZXQ="
+---
+# Source: rag-platform/charts/qdrant/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-qdrant
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+data:
+  initialize.sh: |
+    #!/bin/sh
+    echo "Soft limits"
+    ulimit -a -S
+    echo "Hard limits"
+    ulimit -a -H
+    ulimit -n $(ulimit -Hn)
+    SET_INDEX=${HOSTNAME##*-}
+    echo "Starting initializing for pod $SET_INDEX"
+    if [ "$SET_INDEX" = "0" ]; then
+      exec ./entrypoint.sh --uri 'http://rag-mvp-qdrant-0.rag-mvp-qdrant-headless:6335'
+    else
+      exec ./entrypoint.sh --bootstrap 'http://rag-mvp-qdrant-0.rag-mvp-qdrant-headless:6335' --uri 'http://rag-mvp-qdrant-'"$SET_INDEX"'.rag-mvp-qdrant-headless:6335'
+    fi
+    
+  production.yaml: |
+    cluster:
+      consensus:
+        tick_period_ms: 100
+      enabled: true
+      p2p:
+        enable_tls: false
+        port: 6335
+    service:
+      enable_tls: false
+---
+# Source: rag-platform/charts/redis/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-redis-configuration
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+---
+# Source: rag-platform/charts/redis/templates/health-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-redis-health
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 15 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+# Source: rag-platform/charts/redis/templates/scripts-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-redis-scripts
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+data:
+  start-master.sh: |
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    if [[ -f /opt/bitnami/redis/mounted-etc/master.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+    fi
+    if [[ -f /opt/bitnami/redis/mounted-etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+    exec redis-server "${ARGS[@]}"
+---
+# Source: rag-platform/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-rag-platform-config
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  QDRANT_HOST: "rag-mvp-qdrant"
+  QDRANT_PORT: "6333"
+  
+  NER_SERVICE_URL: "http://rag-mvp-rag-platform-ner:8001"
+  
+  AGE_HOST: "rag-mvp-rag-platform-age"
+  AGE_PORT: "5432"
+  AGE_DB: "agedb"
+  AGE_USER: "ageuser"
+  AGE_GRAPH_NAME: "rag_ontology"
+  AGE_POOL_MIN_SIZE: "2"
+  AGE_POOL_MAX_SIZE: "10"
+
+  OLLAMA_BASE_URL: "http://rag-mvp-rag-platform-ollama-main:11434"
+  LOCAL_LLM_BASE_URL: "http://rag-mvp-rag-platform-ollama-main:11434/v1"
+  LOCAL_LLM_MODEL: "llama3.2:3b"
+  
+  JUDGE_LLM_BASE_URL: "http://rag-mvp-rag-platform-ollama-judge:11434"
+  JUDGE_MODEL: "llama3.2:3b"
+  JUDGE_ENABLED: "true"
+  JUDGE_SCORE_THRESHOLD: "0.7"
+  
+  EMBEDDING_MODEL: "bge-m3:latest"
+  EMBEDDING_DIMENSION: "1024"
+
+  OCR_LANG: "ar"
+  OCR_DEVICE: "cpu"
+  
+  KEYCLOAK_URL: "http://rag-mvp-rag-platform-keycloak:8080"
+  KEYCLOAK_REALM: "rag"
+  KEYCLOAK_CLIENT_ID: "rag-api"
+  
+  DEV_MODE: "false"
+  MOCK_LLM_RESPONSES: "false"
+  
+  # Observability settings
+  PROMETHEUS_WORKER_METRICS_PORT: "9090"
+---
+# Source: rag-platform/templates/frontend/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-mvp-rag-platform-frontend-nginx
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      client_max_body_size 100m;
+
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location /api/ {
+        proxy_pass http://rag-mvp-rag-platform-api:8000;
+        proxy_http_version 1.1;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location / {
+        try_files $uri /index.html;
+      }
+    }
+---
+# Source: rag-platform/templates/ner/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rag-mvp-rag-platform-ner-cache
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ner-service
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: "5Gi"
+---
+# Source: rag-platform/charts/postgresql/templates/primary/svc-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-postgresql-hl
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+    app.kubernetes.io/component: primary
+  annotations:
+    # Use this annotation in addition to the actual publishNotReadyAddresses
+    # field below because the annotation will stop being respected soon but the
+    # field is broken in some versions of Kubernetes:
+    # https://github.com/kubernetes/kubernetes/issues/58662
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # We want all pods in the StatefulSet to have their addresses published for
+  # the sake of the other Postgresql pods even before they're ready, since they
+  # have to be able to talk to each other in order to become ready.
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
+---
+# Source: rag-platform/charts/postgresql/templates/primary/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+    app.kubernetes.io/component: primary
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: primary
+---
+# Source: rag-platform/charts/qdrant/templates/service-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-qdrant-headless
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+    app.kubernetes.io/component: cluster-discovery
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+      protocol: TCP
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+      protocol: TCP
+    - name: p2p
+      port: 6335
+      targetPort: 6335
+      protocol: TCP
+  selector:
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+---
+# Source: rag-platform/charts/qdrant/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-qdrant
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+      protocol: TCP
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+      protocol: TCP
+    - name: p2p
+      port: 6335
+      targetPort: 6335
+      protocol: TCP
+  selector:
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+---
+# Source: rag-platform/charts/redis/templates/headless-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-redis-headless
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/name: redis
+---
+# Source: rag-platform/charts/redis/templates/master/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-redis-master
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+    app.kubernetes.io/component: master
+spec:
+  type: ClusterIP
+  internalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      nodePort: null
+  selector:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: master
+---
+# Source: rag-platform/templates/age/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-age
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: graph-db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: graph-db
+---
+# Source: rag-platform/templates/api/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-api
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: api
+---
+# Source: rag-platform/templates/frontend/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-frontend
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: frontend
+---
+# Source: rag-platform/templates/keycloak/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-keycloak
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: keycloak
+---
+# Source: rag-platform/templates/ner/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-ner
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ner-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8001
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: ner-service
+---
+# Source: rag-platform/templates/ollama/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-ollama-main
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ollama-main
+spec:
+  type: ClusterIP
+  ports:
+    - port: 11434
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: ollama-main
+---
+# Source: rag-platform/templates/ollama/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-ollama-judge
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ollama-judge
+spec:
+  type: ClusterIP
+  ports:
+    - port: 11434
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/component: ollama-judge
+---
+# Source: rag-platform/templates/workers/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-mvp-rag-platform-workers-metrics
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: workers-metrics
+spec:
+  clusterIP: None # Headless service for scraping endpoints directly
+  ports:
+    - port: 9090
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/part-of: celery-worker
+---
+# Source: rag-platform/templates/api/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-api
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: api
+    spec:
+      containers:
+        - name: api
+          image: "rag-api:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: rag-mvp-rag-platform-config
+            - secretRef:
+                name: rag-mvp-rag-platform-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+---
+# Source: rag-platform/templates/frontend/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-frontend
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: "rag-frontend:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: rag-mvp-rag-platform-frontend-nginx
+---
+# Source: rag-platform/templates/keycloak/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-keycloak
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: "quay.io/keycloak/keycloak:24.0.1"
+          imagePullPolicy: IfNotPresent
+          command:
+            - /opt/keycloak/bin/kc.sh
+            - start-dev
+            - --http-port=8080
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: "admin"
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-mvp-rag-platform-secrets
+                  key: KEYCLOAK_ADMIN_PASSWORD
+            - name: KC_PROXY
+              value: "edge"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+---
+# Source: rag-platform/templates/ner/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-ner
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ner-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: ner-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: ner-service
+    spec:
+      containers:
+        - name: ner
+          image: "rag-ner:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: GLINER_MODEL_NAME
+              value: "urchade/gliner_multi-v2.1"
+            - name: GLINER_LANGUAGES
+              value: "en,ar"
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: ner-cache
+              mountPath: /root/.cache/huggingface
+      volumes:
+        - name: ner-cache
+          persistentVolumeClaim:
+            claimName: rag-mvp-rag-platform-ner-cache
+---
+# Source: rag-platform/templates/workers/worker-eval-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-worker-eval
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker-eval
+    app.kubernetes.io/part-of: celery-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: worker-eval
+      app.kubernetes.io/part-of: celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: worker-eval
+        app.kubernetes.io/part-of: celery-worker
+    spec:
+      containers:
+        - name: worker
+          image: "rag-api:latest"
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - -P
+            - solo
+            - --concurrency=1
+            - -Q
+            - evaluation
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: rag-mvp-rag-platform-config
+            - secretRef:
+                name: rag-mvp-rag-platform-secrets
+          env:
+            - name: WORKER_SERVICE_NAME
+              value: "rag-worker-evaluation"
+            - name: PROMETHEUS_WORKER_METRICS_PORT
+              value: "9090"
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 200m
+              memory: 1Gi
+---
+# Source: rag-platform/templates/workers/worker-ingestion-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-mvp-rag-platform-worker-ingestion
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker-ingestion
+    app.kubernetes.io/part-of: celery-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: worker-ingestion
+      app.kubernetes.io/part-of: celery-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: worker-ingestion
+        app.kubernetes.io/part-of: celery-worker
+    spec:
+      containers:
+        - name: worker
+          image: "rag-api:latest"
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - -A
+            - app.workers.celery_app
+            - worker
+            - --loglevel=info
+            - -P
+            - solo
+            - --concurrency=1
+            - -Q
+            - ingestion,extraction,celery
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: rag-mvp-rag-platform-config
+            - secretRef:
+                name: rag-mvp-rag-platform-secrets
+          env:
+            - name: WORKER_SERVICE_NAME
+              value: "rag-worker-ingestion"
+            - name: PROMETHEUS_WORKER_METRICS_PORT
+              value: "9090"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+---
+# Source: rag-platform/templates/api/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-mvp-rag-platform-api
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-mvp-rag-platform-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# Source: rag-platform/templates/frontend/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-mvp-rag-platform-frontend
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-mvp-rag-platform-frontend
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# Source: rag-platform/charts/postgresql/templates/primary/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-postgresql
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/version: 16.3.0
+    helm.sh/chart: postgresql-15.5.4
+    app.kubernetes.io/component: primary
+spec:
+  replicas: 1
+  serviceName: rag-mvp-postgresql-hl
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      name: rag-mvp-postgresql
+      labels:
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: postgresql
+        app.kubernetes.io/version: 16.3.0
+        helm.sh/chart: postgresql-15.5.4
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: rag-mvp-postgresql
+      
+      automountServiceAccountToken: false
+      affinity:
+        podAffinity:
+          
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: rag-mvp
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/component: primary
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+          
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      hostNetwork: false
+      hostIPC: false
+      containers:
+        - name: postgresql
+          image: docker.io/bitnami/postgresql:16.3.0-debian-12-r13
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: {}
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: "/bitnami/postgresql"
+            - name: PGDATA
+              value: "/bitnami/postgresql/data"
+            # Authentication
+            - name: POSTGRES_USER
+              value: "raguser"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-mvp-postgresql
+                  key: password
+            - name: POSTGRES_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-mvp-postgresql
+                  key: postgres-password
+            - name: POSTGRES_DATABASE
+              value: "ragdb"
+            # Replication
+            # Initdb
+            # Standby
+            # LDAP
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            # TLS
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            # Audit
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            # Others
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: "error"
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: "pgaudit"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "raguser" -d "dbname=ragdb" -h 127.0.0.1 -p 5432
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "raguser" -d "dbname=ragdb" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/postgresql/conf
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/postgresql/tmp
+              subPath: app-tmp-dir
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+      volumes:
+        - name: empty-dir
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+---
+# Source: rag-platform/charts/qdrant/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-qdrant
+  labels:
+    helm.sh/chart: qdrant-1.17.0
+    app: qdrant
+    app.kubernetes.io/name: qdrant
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "v1.17.0"
+    app.kubernetes.io/managed-by: Helm
+    
+spec:
+  replicas: 1
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  selector:
+    matchLabels:
+      app: qdrant
+      app.kubernetes.io/name: qdrant
+      app.kubernetes.io/instance: rag-mvp
+  serviceName: rag-mvp-qdrant-headless
+  template:
+    metadata:
+      annotations:
+        checksum/config: 25b62d535453fbea6f051c17c4e9acfb15dca4ba49973f10e191986335b816f7
+      labels:
+        app: qdrant
+        app.kubernetes.io/name: qdrant
+        app.kubernetes.io/instance: rag-mvp
+        
+    spec:
+      initContainers:
+      - name: ensure-dir-ownership
+        image: "docker.io/qdrant/qdrant:v1.17.0"
+        command:
+          - chown
+          - -R
+          - 1000:3000
+          - /qdrant/storage
+          - /qdrant/snapshots
+        volumeMounts:
+          - name: qdrant-storage
+            mountPath: /qdrant/storage
+          - name: qdrant-snapshots
+            mountPath: /qdrant/snapshots
+      containers:
+        - name: qdrant
+          image: "docker.io/qdrant/qdrant:v1.17.0"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: QDRANT_INIT_FILE_PATH
+              value: /qdrant/init/.qdrant-initialized
+          command: ["/bin/bash", "-c"]
+          args:
+          - ./config/initialize.sh
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+            - name: p2p
+              containerPort: 6335
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: "/readyz"
+              port: 6333
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 2000
+            runAsNonRoot: true
+            runAsUser: 1000
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                - sleep
+                - "3"
+          volumeMounts:
+          - name: qdrant-storage
+            mountPath: /qdrant/storage
+          - name: qdrant-config
+            mountPath: /qdrant/config/initialize.sh
+            subPath: initialize.sh
+          - name: qdrant-config
+            mountPath: /qdrant/config/production.yaml
+            subPath: production.yaml
+          - name: qdrant-snapshots
+            mountPath: /qdrant/snapshots
+          - name: qdrant-init
+            mountPath: /qdrant/init
+      securityContext:
+        fsGroup: 3000
+        fsGroupChangePolicy: Always
+      serviceAccountName: rag-mvp-qdrant
+      volumes:
+        - name: qdrant-config
+          configMap:
+            name: rag-mvp-qdrant
+            defaultMode: 0755
+        - name: qdrant-snapshots
+          emptyDir: {}
+        - name: qdrant-init
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: qdrant-storage
+        labels:
+          app: qdrant
+      spec:
+        storageClassName: 
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "10Gi"
+---
+# Source: rag-platform/charts/redis/templates/master/application.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-redis-master
+  namespace: "default"
+  labels:
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/version: 7.2.4
+    helm.sh/chart: redis-19.0.0
+    app.kubernetes.io/component: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/component: master
+  serviceName: rag-mvp-redis-headless
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/version: 7.2.4
+        helm.sh/chart: redis-19.0.0
+        app.kubernetes.io/component: master
+      annotations:
+        checksum/configmap: 86bcc953bb473748a3d3dc60b7c11f34e60c93519234d4c37f42e22ada559d47
+        checksum/health: aff24913d801436ea469d8d374b2ddb3ec4c43ee7ab24663d5f8ff1a1b6991a9
+        checksum/scripts: 560c33ff34d845009b51830c332aa05fa211444d1877d3526d3599be7543aaa5
+        checksum/secret: 8b22b9de56e69df1cb8db0fb993944c1fd64cdbbd42865da16f5f39a45fccd56
+    spec:
+      
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: Always
+        supplementalGroups: []
+        sysctls: []
+      serviceAccountName: rag-mvp-redis-master
+      automountServiceAccountToken: false
+      affinity:
+        podAffinity:
+          
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/instance: rag-mvp
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/component: master
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity:
+          
+      enableServiceLinks: true
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:7.2.4-debian-12-r9
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 1001
+            runAsNonRoot: true
+            runAsUser: 1001
+            seLinuxOptions: null
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-master.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-mvp-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            # One second longer than command timeout should prevent generation of zombie processes.
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: empty-dir
+              mountPath: /opt/bitnami/redis/etc/
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: rag-mvp-redis-scripts
+            defaultMode: 0755
+        - name: health
+          configMap:
+            name: rag-mvp-redis-health
+            defaultMode: 0755
+        - name: config
+          configMap:
+            name: rag-mvp-redis-configuration
+        - name: empty-dir
+          emptyDir: {}
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/instance: rag-mvp
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/component: master
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "5Gi"
+---
+# Source: rag-platform/templates/age/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-rag-platform-age
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: graph-db
+spec:
+  serviceName: rag-mvp-rag-platform-age
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: graph-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: graph-db
+    spec:
+      containers:
+        - name: age
+          image: "apache/age:release_PG16_1.5.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: "agedb"
+            - name: POSTGRES_USER
+              value: "ageuser"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-mvp-rag-platform-secrets
+                  key: AGE_PASSWORD
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: age-data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: age-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: "10Gi"
+---
+# Source: rag-platform/templates/ollama/ollama-judge-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-rag-platform-ollama-judge
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ollama-judge
+spec:
+  serviceName: rag-mvp-rag-platform-ollama-judge
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: ollama-judge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: ollama-judge
+    spec:
+      containers:
+        - name: ollama
+          image: "ollama/ollama:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: JUDGE_MODEL
+              value: "llama3.2:3b"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ollama serve &
+              sleep 10;
+              ollama show "$JUDGE_MODEL" >/dev/null 2>&1 || ollama pull "$JUDGE_MODEL" || echo "warning: failed to pull $JUDGE_MODEL";
+              wait
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: model-data
+              mountPath: /root/.ollama
+  volumeClaimTemplates:
+    - metadata:
+        name: model-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: "20Gi"
+---
+# Source: rag-platform/templates/ollama/ollama-main-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rag-mvp-rag-platform-ollama-main
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: ollama-main
+spec:
+  serviceName: rag-mvp-rag-platform-ollama-main
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: ollama-main
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-platform
+        app.kubernetes.io/instance: rag-mvp
+        app.kubernetes.io/component: ollama-main
+    spec:
+      containers:
+        - name: ollama
+          image: "ollama/ollama:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: LOCAL_LLM_MODEL
+              value: "llama3.2:3b"
+            - name: EMBEDDING_MODEL
+              value: "bge-m3:latest"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              ollama serve &
+              sleep 10;
+              for model in "$LOCAL_LLM_MODEL" "$EMBEDDING_MODEL"; do
+                ollama show "$model" >/dev/null 2>&1 || ollama pull "$model" || echo "warning: failed to pull $model";
+              done;
+              wait
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: model-data
+              mountPath: /root/.ollama
+  volumeClaimTemplates:
+    - metadata:
+        name: model-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: "20Gi"
+---
+# Source: rag-platform/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-mvp-rag-platform-ingress
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: "nginx"
+  rules:
+    - host: "rag.local"
+      http:
+        paths:
+          # Frontend routing
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-frontend
+                port:
+                  number: 80
+          # API Server routing
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-api
+                port:
+                  number: 8000
+          # Keycloak routing endpoints
+          - path: /realms/
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-keycloak
+                port:
+                  number: 8080
+          - path: /resources/
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-keycloak
+                port:
+                  number: 8080
+          - path: /js/
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-keycloak
+                port:
+                  number: 8080
+          - path: /admin/
+            pathType: Prefix
+            backend:
+              service:
+                name: rag-mvp-rag-platform-keycloak
+                port:
+                  number: 8080
+---
+# Source: rag-platform/templates/observability/alertrules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rag-mvp-rag-platform-slo-alerts
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    role: alert-rules
+spec:
+  groups:
+    - name: rag-slo-alerts
+      rules:
+        # P95 Query Latency Alert
+        - alert: RAGQueryLatencySLOBreach
+          expr: histogram_quantile(0.95, sum(rate(rag_query_latency_seconds_bucket[5m])) by (le)) > 5
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "RAG Query Latency P95 is breaching SLO"
+            description: 'The 95th percentile query response time has breached the 5s threshold (currently {{ $value | printf "%.2f" }}s) for more than 2 minutes.'
+        # Evaluation Queue Depth Alert
+        - alert: RAGEvaluationQueueBacklog
+          expr: 'rag_celery_queue_depth{queue="evaluation"} > 50'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RAG Evaluation Queue backlog is accumulating"
+            description: 'There are currently {{ $value }} tasks waiting in the evaluation queue for more than 5 minutes.'
+
+        # Ingestion Task Failure Alert
+        - alert: RAGCeleryTaskFailures
+          expr: 'rate(rag_celery_task_failures_total[5m]) > 0.05'
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "RAG Celery tasks are failing"
+            description: 'Celery tasks are failing at a rate of {{ $value | printf "%.2f" }} per second over the last 5 minutes.'
+---
+# Source: rag-platform/templates/observability/servicemonitors.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rag-mvp-rag-platform-api
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    release: prometheus # Prometheus Operator release selector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+# Source: rag-platform/templates/observability/servicemonitors.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rag-mvp-rag-platform-workers
+  labels:
+    helm.sh/chart: rag-platform-1.0.0
+    app.kubernetes.io/name: rag-platform
+    app.kubernetes.io/instance: rag-mvp
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rag-platform
+      app.kubernetes.io/instance: rag-mvp
+      app.kubernetes.io/component: workers-metrics
+  endpoints:
+    - port: metrics
+      path: /
+      interval: 15s
+

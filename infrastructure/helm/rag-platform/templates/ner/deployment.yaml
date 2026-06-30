@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-ner
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ner-service
+spec:
+  replicas: {{ .Values.ner.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "rag-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ner-service
+  template:
+    metadata:
+      labels:
+        {{- include "rag-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ner-service
+    spec:
+      containers:
+        - name: ner
+          image: "{{ .Values.ner.image.repository }}:{{ .Values.ner.image.tag }}"
+          imagePullPolicy: {{ .Values.ner.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          env:
+            - name: GLINER_MODEL_NAME
+              value: "urchade/gliner_multi-v2.1"
+            - name: GLINER_LANGUAGES
+              value: "en,ar"
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.ner.resources | nindent 12 }}
+          volumeMounts:
+            - name: ner-cache
+              mountPath: /root/.cache/huggingface
+      volumes:
+        - name: ner-cache
+          {{- if .Values.ner.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "rag-platform.fullname" . }}-ner-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

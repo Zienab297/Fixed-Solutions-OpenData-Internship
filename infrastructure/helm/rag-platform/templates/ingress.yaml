@@ -1,0 +1,69 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "rag-platform.fullname" . }}-ingress
+  labels:
+    {{- include "rag-platform.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className | default "nginx" | quote }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.global.domain | quote }}
+      secretName: {{ .Values.ingress.tls.secretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.global.domain | quote }}
+      http:
+        paths:
+          # Frontend routing
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-frontend
+                port:
+                  number: 80
+          # API Server routing
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-api
+                port:
+                  number: 8000
+          {{- if .Values.keycloak.enabled }}
+          # Keycloak routing endpoints
+          - path: /realms/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-keycloak
+                port:
+                  number: 8080
+          - path: /resources/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-keycloak
+                port:
+                  number: 8080
+          - path: /js/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-keycloak
+                port:
+                  number: 8080
+          - path: /admin/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rag-platform.fullname" . }}-keycloak
+                port:
+                  number: 8080
+          {{- end }}
+{{- end }}
