@@ -51,13 +51,6 @@ SEED_FILES = [
         "domains": ["legal", "medical"],   # uploaded once per domain
         "probe_term": "ZZPROBE-SHARED-91bd6a",
     },
-
-    {
-        "key": "cs_only_doc",
-        "path": "seed_docs/cs_only_doc.docx",
-        "domains": ["computer science"],   # uploaded once per domain
-        "probe_term": "ZZPROBE-CS-b8f14e",
-    }
 ]
 
 

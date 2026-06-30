@@ -3,7 +3,7 @@ from locust import HttpUser, task, between
 
 DOMAIN_ID = "bfcde845-1597-424d-8ee2-ab61d91f514c"  
 
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeXN0ZW0tYWRtaW4tMDA5IiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsImV4cCI6MTc4Mjc5NDc1NX0.LJHA1f1puAESKlRwl6XzvdZTOojWvM8BntD_GD8Rno4"
+ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzeXN0ZW0tYWRtaW4tMDAxIiwiZW1haWwiOiJhZG1pbkBleGFtcGxlLmNvbSIsImV4cCI6MTc4Mjg1MTc0OX0.5JYZKXTqE9m9IB52kXKE4nXLvNZIH2VCq_0NsxBMDYg"
 
 
 class CVPlatformLoadTester(HttpUser):
